@@ -17,13 +17,20 @@ import (
 
 // ProcessState 进程状态
 type ProcessState struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Status    string    `json:"status"`
-	PID       int       `json:"pid"`
-	StartTime time.Time `json:"start_time"`
-	CreatedAt time.Time `json:"created_at"`
-	Restarts  int       `json:"restarts"`
+	ID           string            `json:"id"`
+	Name         string            `json:"name"`
+	Status       string            `json:"status"`
+	PID          int               `json:"pid"`
+	StartTime    time.Time         `json:"start_time"`
+	CreatedAt    time.Time         `json:"created_at"`
+	Restarts     int               `json:"restarts"`
+	Script       string            `json:"script"`
+	Args         []string          `json:"args"`
+	Env          map[string]string `json:"env"`
+	LogPath      string            `json:"log_path"`
+	Cwd          string            `json:"cwd"`
+	MaxRestarts  int               `json:"max_restarts"`
+	RestartDelay int               `json:"restart_delay"`
 }
 
 // StateFile 状态文件
@@ -112,12 +119,6 @@ func (pm *ProcessManager) StartProcess(c *cli.Context) error {
 	// 添加到进程列表
 	pm.processes[name] = process
 	process.SetManager(pm)
-
-	// 保存配置
-	pm.config.Processes = append(pm.config.Processes, *procConfig)
-	if err := config.SaveConfig("config.yaml", pm.config); err != nil {
-		return fmt.Errorf("failed to save config: %w", err)
-	}
 
 	// 保存状态
 	pm.saveState()
@@ -289,19 +290,6 @@ func (pm *ProcessManager) DeleteProcess(c *cli.Context) error {
 
 	delete(pm.processes, name)
 
-	// 更新配置
-	var newProcesses []config.ProcessConfig
-	for _, p := range pm.config.Processes {
-		if p.Name != name {
-			newProcesses = append(newProcesses, p)
-		}
-	}
-	pm.config.Processes = newProcesses
-
-	if err := config.SaveConfig("config.yaml", pm.config); err != nil {
-		return fmt.Errorf("failed to save config: %w", err)
-	}
-
 	// 保存状态
 	pm.saveState()
 
@@ -348,49 +336,6 @@ func (pm *ProcessManager) ReloadConfig(c *cli.Context) error {
 	pm.config = newConfig
 	pm.logManager.UpdateConfig(newConfig.Log)
 
-	// 重启进程
-	for _, procConfig := range newConfig.Processes {
-		if process, ok := pm.processes[procConfig.Name]; ok {
-			if err := process.Restart(); err != nil {
-				fmt.Printf("Failed to restart process %s: %v\n", procConfig.Name, err)
-			}
-		} else {
-			// 启动新进程
-			process, err := NewProcess(&procConfig, pm.logManager)
-			if err != nil {
-				fmt.Printf("Failed to create process %s: %v\n", procConfig.Name, err)
-				continue
-			}
-
-			process.SetManager(pm)
-
-			if err := process.Start(); err != nil {
-				fmt.Printf("Failed to start process %s: %v\n", procConfig.Name, err)
-				continue
-			}
-
-			pm.processes[procConfig.Name] = process
-		}
-	}
-
-	// 删除不存在的进程
-	for name, process := range pm.processes {
-		found := false
-		for _, procConfig := range newConfig.Processes {
-			if procConfig.Name == name {
-				found = true
-				break
-			}
-		}
-
-		if !found {
-			if err := process.Stop(); err != nil {
-				fmt.Printf("Failed to stop process %s: %v\n", name, err)
-			}
-			delete(pm.processes, name)
-		}
-	}
-
 	// 保存状态
 	pm.saveState()
 
@@ -428,13 +373,20 @@ func (pm *ProcessManager) saveState() error {
 
 	for name, process := range pm.processes {
 		state.Processes[name] = ProcessState{
-			ID:        process.id,
-			Name:      process.config.Name,
-			Status:    process.status,
-			PID:       process.pid,
-			StartTime: process.startTime,
-			CreatedAt: process.createdAt,
-			Restarts:  process.restarts,
+			ID:           process.id,
+			Name:         process.config.Name,
+			Status:       process.status,
+			PID:          process.pid,
+			StartTime:    process.startTime,
+			CreatedAt:    process.createdAt,
+			Restarts:     process.restarts,
+			Script:       process.config.Script,
+			Args:         process.config.Args,
+			Env:          process.config.Env,
+			LogPath:      process.config.LogPath,
+			Cwd:          process.config.Cwd,
+			MaxRestarts:  process.config.MaxRestarts,
+			RestartDelay: process.config.RestartDelay,
 		}
 	}
 
@@ -466,26 +418,39 @@ func (pm *ProcessManager) loadState() error {
 	}
 
 	// 加载进程配置
-	for _, procConfig := range pm.config.Processes {
-		if processState, ok := state.Processes[procConfig.Name]; ok {
-			// 创建进程
-			process, err := NewProcess(&procConfig, pm.logManager)
-			if err != nil {
-				fmt.Printf("Failed to create process %s: %v\n", procConfig.Name, err)
-				continue
-			}
-
-			// 恢复进程状态
-			process.id = processState.ID
-			process.status = processState.Status
-			process.pid = processState.PID
-			process.startTime = processState.StartTime
-			process.createdAt = processState.CreatedAt
-			process.restarts = processState.Restarts
-
-			// 添加到进程列表
-			pm.processes[procConfig.Name] = process
+	for name, processState := range state.Processes {
+		// 创建进程配置
+		procConfig := &config.ProcessConfig{
+			Name:         processState.Name,
+			Script:       processState.Script,
+			Args:         processState.Args,
+			Env:          processState.Env,
+			LogPath:      processState.LogPath,
+			Cwd:          processState.Cwd,
+			MaxRestarts:  processState.MaxRestarts,
+			RestartDelay: processState.RestartDelay,
 		}
+
+		// 创建进程
+		process, err := NewProcess(procConfig, pm.logManager)
+		if err != nil {
+			fmt.Printf("Failed to create process %s: %v\n", processState.Name, err)
+			continue
+		}
+
+		// 恢复进程状态
+		process.id = processState.ID
+		process.status = processState.Status
+		process.pid = processState.PID
+		process.startTime = processState.StartTime
+		process.createdAt = processState.CreatedAt
+		process.restarts = processState.Restarts
+
+		// 设置管理器
+		process.SetManager(pm)
+
+		// 添加到进程列表
+		pm.processes[name] = process
 	}
 
 	return nil

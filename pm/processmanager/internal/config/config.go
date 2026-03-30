@@ -9,9 +9,8 @@ import (
 
 // Config 应用配置
 type Config struct {
-	Log       LogConfig       `yaml:"log"`
-	Processes []ProcessConfig `yaml:"processes"`
-	StateFile string          `yaml:"state_file"`
+	Log       LogConfig `yaml:"log"`
+	StateFile string    `yaml:"state_file"`
 }
 
 // LogConfig 日志配置
