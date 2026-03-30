@@ -3,6 +3,7 @@ package manager
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -55,10 +56,10 @@ func NewProcessManager(cfg *config.Config) *ProcessManager {
 	if !filepath.IsAbs(stateFile) {
 		absPath, err := filepath.Abs(stateFile)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to get absolute path for state file")
+			slog.Error("Failed to get absolute path for state file", "error", err)
 		} else {
 			stateFile = absPath
-			log.Info().Str("path", stateFile).Msg("Using absolute path for state file")
+			slog.Debug("Using absolute path for state file", "path", stateFile)
 		}
 	}
 
@@ -71,7 +72,7 @@ func NewProcessManager(cfg *config.Config) *ProcessManager {
 
 	// 加载进程状态
 	if err := pm.loadState(); err != nil {
-		log.Error().Err(err).Msg("Failed to load state")
+		slog.Error("Failed to load state", "error", err)
 	}
 
 	return pm
@@ -137,14 +138,14 @@ func (pm *ProcessManager) StartProcess(c *cli.Context) error {
 	process.SetManager(pm)
 
 	// 打印进程列表大小
-	log.Info().Int("count", len(pm.processes)).Str("process", name).Msg("Process added to list")
+	slog.Debug("Process added to list", "count", len(pm.processes), "process", name)
 
 	// 同步保存状态
-	log.Info().Msg("Saving state...")
+	slog.Debug("Saving state...")
 	if err := pm.saveState(); err != nil {
-		log.Error().Err(err).Msg("Failed to save state")
+		slog.Error("Failed to save state", "error", err)
 	} else {
-		log.Info().Msg("State saved successfully")
+		slog.Debug("State saved successfully")
 	}
 
 	fmt.Printf("Process %s started successfully\n", name)
@@ -424,25 +425,25 @@ func loadEnvFile(filePath string, env map[string]string) error {
 // saveState 保存进程状态
 func (pm *ProcessManager) saveState() error {
 	// 打印调试信息
-	log.Info().Str("stateFile", pm.stateFile).Int("processCount", len(pm.processes)).Msg("Starting to save state")
+	slog.Debug("Starting to save state", "stateFile", pm.stateFile, "processCount", len(pm.processes))
 
 	// 确保状态文件路径是绝对路径
 	stateFile := pm.stateFile
 	if !filepath.IsAbs(stateFile) {
 		absPath, err := filepath.Abs(stateFile)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to get absolute path for state file")
+			slog.Error("Failed to get absolute path for state file", "error", err)
 			return fmt.Errorf("failed to get absolute path for state file: %w", err)
 		}
 		stateFile = absPath
-		log.Info().Str("path", stateFile).Msg("Using absolute path for state file")
+		slog.Debug("Using absolute path for state file", "path", stateFile)
 	}
 
 	// 确保状态文件所在目录存在
 	dir := filepath.Dir(stateFile)
-	log.Info().Str("dir", dir).Msg("Creating directory for state file")
+	slog.Debug("Creating directory for state file", "dir", dir)
 	if err := os.MkdirAll(dir, 0755); err != nil {
-		log.Error().Err(err).Msg("Failed to create directory for state file")
+		slog.Error("Failed to create directory for state file", "error", err)
 		return fmt.Errorf("failed to create directory for state file: %w", err)
 	}
 
@@ -451,9 +452,9 @@ func (pm *ProcessManager) saveState() error {
 	}
 
 	// 打印进程列表
-	log.Info().Int("count", len(pm.processes)).Msg("Processes to save")
+	slog.Debug("Processes to save", "count", len(pm.processes))
 	for name, process := range pm.processes {
-		log.Info().Str("name", name).Str("status", process.status).Int("pid", process.pid).Msg("Saving process")
+		slog.Debug("Saving process", "name", name, "status", process.status, "pid", process.pid)
 		state.Processes[name] = ProcessState{
 			ID:           process.id,
 			Name:         process.config.Name,
@@ -473,32 +474,32 @@ func (pm *ProcessManager) saveState() error {
 	}
 
 	// 打印状态内容
-	log.Info().Int("processCount", len(state.Processes)).Msg("State to save")
+	slog.Debug("State to save", "processCount", len(state.Processes))
 
 	data, err := json.Marshal(state)
 	if err != nil {
-		log.Error().Err(err).Msg("Failed to marshal state")
+		slog.Error("Failed to marshal state", "error", err)
 		return fmt.Errorf("failed to marshal state: %w", err)
 	}
 
 	// 打印序列化后的数据
-	log.Info().Str("data", string(data)).Msg("Serialized state data")
+	slog.Debug("Serialized state data", "data", string(data))
 
-	log.Info().Str("path", stateFile).Msg("Writing state file")
+	slog.Debug("Writing state file", "path", stateFile)
 	if err := os.WriteFile(stateFile, data, 0644); err != nil {
-		log.Error().Err(err).Str("path", stateFile).Msg("Failed to write state file")
+		slog.Error("Failed to write state file", "error", err, "path", stateFile)
 		return fmt.Errorf("failed to write state file: %w", err)
 	}
 
 	// 验证文件是否被写入
 	fileInfo, err := os.Stat(stateFile)
 	if err != nil {
-		log.Error().Err(err).Str("path", stateFile).Msg("Failed to stat state file")
+		slog.Error("Failed to stat state file", "error", err, "path", stateFile)
 	} else {
-		log.Info().Str("path", stateFile).Int64("size", fileInfo.Size()).Msg("State file written successfully")
+		slog.Debug("State file written successfully", "path", stateFile, "size", fileInfo.Size())
 	}
 
-	log.Info().Str("path", stateFile).Msg("State saved successfully")
+	slog.Debug("State saved successfully", "path", stateFile)
 	return nil
 }
 
@@ -509,7 +510,7 @@ func (pm *ProcessManager) loadState() error {
 	if !filepath.IsAbs(stateFile) {
 		absPath, err := filepath.Abs(stateFile)
 		if err != nil {
-			log.Error().Err(err).Msg("Failed to get absolute path for state file")
+			slog.Error("Failed to get absolute path for state file", "error", err)
 			return fmt.Errorf("failed to get absolute path for state file: %w", err)
 		}
 		stateFile = absPath
@@ -518,27 +519,27 @@ func (pm *ProcessManager) loadState() error {
 	data, err := os.ReadFile(stateFile)
 	if err != nil {
 		if os.IsNotExist(err) {
-			log.Info().Str("path", stateFile).Msg("State file not found, creating new one")
+			slog.Debug("State file not found, creating new one", "path", stateFile)
 			// 创建空的状态文件
 			emptyState := StateFile{Processes: make(map[string]ProcessState)}
 			data, err := json.Marshal(emptyState)
 			if err != nil {
-				log.Error().Err(err).Msg("Failed to marshal empty state")
+				slog.Error("Failed to marshal empty state", "error", err)
 				return fmt.Errorf("failed to marshal empty state: %w", err)
 			}
 			if err := os.WriteFile(stateFile, data, 0644); err != nil {
-				log.Error().Err(err).Str("path", stateFile).Msg("Failed to write empty state file")
+				slog.Error("Failed to write empty state file", "error", err, "path", stateFile)
 				return fmt.Errorf("failed to write empty state file: %w", err)
 			}
 			return nil
 		}
-		log.Error().Err(err).Str("path", stateFile).Msg("Failed to read state file")
+		slog.Error("Failed to read state file", "error", err, "path", stateFile)
 		return fmt.Errorf("failed to read state file: %w", err)
 	}
 
 	var state StateFile
 	if err := json.Unmarshal(data, &state); err != nil {
-		log.Error().Err(err).Str("path", stateFile).Msg("Failed to unmarshal state")
+		slog.Error("Failed to unmarshal state", "error", err, "path", stateFile)
 		return fmt.Errorf("failed to unmarshal state: %w", err)
 	}
 
@@ -559,7 +560,7 @@ func (pm *ProcessManager) loadState() error {
 		// 创建进程
 		process, err := NewProcess(procConfig, pm.logManager)
 		if err != nil {
-			log.Error().Err(err).Str("process", processState.Name).Msg("Failed to create process")
+			slog.Error("Failed to create process", "error", err, "process", processState.Name)
 			continue
 		}
 
@@ -576,9 +577,9 @@ func (pm *ProcessManager) loadState() error {
 
 		// 添加到进程列表
 		pm.processes[name] = process
-		log.Info().Str("process", name).Msg("Process loaded from state")
+		slog.Debug("Process loaded from state", "process", name)
 	}
 
-	log.Info().Str("path", stateFile).Msg("State loaded successfully")
+	slog.Debug("State loaded successfully", "path", stateFile)
 	return nil
 }

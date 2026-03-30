@@ -29,6 +29,19 @@ func main() {
 	app := &cli.App{
 		Name:  "pm",
 		Usage: "Process manager",
+		Flags: []cli.Flag{
+			&cli.BoolFlag{
+				Name:  "debug",
+				Usage: "Enable debug logging",
+			},
+		},
+		Before: func(c *cli.Context) error {
+			// 根据 debug 标志设置日志级别
+			if c.Bool("debug") {
+				logger.SetDebug(true)
+			}
+			return nil
+		},
 		Commands: []*cli.Command{
 			{
 				Name:  "start",

@@ -2,6 +2,7 @@ package manager
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,8 +10,6 @@ import (
 
 	"processmanager/internal/config"
 	"processmanager/internal/logger"
-
-	"github.com/rs/zerolog/log"
 )
 
 // Process 进程模型
@@ -86,7 +85,7 @@ func (p *Process) Start() error {
 	p.status = "running"
 	p.startTime = time.Now()
 
-	log.Info().Str("process", p.config.Name).Int("pid", p.pid).Msg("Process started")
+	slog.Debug("Process started", "process", p.config.Name, "pid", p.pid)
 
 	// 异步保存状态
 	if p.manager != nil {
@@ -113,12 +112,12 @@ func (p *Process) Stop() error {
 	// 尝试通过 cmd.Process 停止进程
 	if p.cmd != nil && p.cmd.Process != nil {
 		if err := p.cmd.Process.Kill(); err != nil {
-			log.Warn().Str("process", p.config.Name).Err(err).Msg("Failed to kill process via cmd.Process")
+			slog.Warn("Failed to kill process via cmd.Process", "process", p.config.Name, "error", err)
 			// 继续尝试通过 PID 停止进程
 		} else {
 			_, err := p.cmd.Process.Wait()
 			if err != nil {
-				log.Warn().Str("process", p.config.Name).Err(err).Msg("Failed to wait for process")
+				slog.Warn("Failed to wait for process", "process", p.config.Name, "error", err)
 			}
 		}
 	}
@@ -127,14 +126,14 @@ func (p *Process) Stop() error {
 	if p.pid > 0 {
 		process, err := os.FindProcess(p.pid)
 		if err != nil {
-			log.Warn().Str("process", p.config.Name).Err(err).Msg("Failed to find process by PID")
+			slog.Warn("Failed to find process by PID", "process", p.config.Name, "error", err)
 		} else {
 			if err := process.Kill(); err != nil {
-				log.Warn().Str("process", p.config.Name).Err(err).Msg("Failed to kill process by PID")
+				slog.Warn("Failed to kill process by PID", "process", p.config.Name, "error", err)
 			} else {
 				_, err := process.Wait()
 				if err != nil {
-					log.Warn().Str("process", p.config.Name).Err(err).Msg("Failed to wait for process")
+					slog.Warn("Failed to wait for process", "process", p.config.Name, "error", err)
 				}
 			}
 		}
@@ -142,15 +141,15 @@ func (p *Process) Stop() error {
 
 	p.status = "stopped"
 	p.pid = 0
-	log.Info().Str("process", p.config.Name).Msg("Process stopped")
+	slog.Debug("Process stopped", "process", p.config.Name)
 
 	// 同步保存状态
 	if p.manager != nil {
-		log.Info().Msg("Saving state...")
+		slog.Debug("Saving state...")
 		if err := p.manager.saveState(); err != nil {
-			log.Error().Err(err).Msg("Failed to save state")
+			slog.Error("Failed to save state", "error", err)
 		} else {
-			log.Info().Msg("State saved successfully")
+			slog.Debug("State saved successfully")
 		}
 	}
 
@@ -160,7 +159,7 @@ func (p *Process) Stop() error {
 // Restart 重启进程
 func (p *Process) Restart() error {
 	if err := p.Stop(); err != nil {
-		log.Warn().Str("process", p.config.Name).Err(err).Msg("Failed to stop process")
+		slog.Warn("Failed to stop process", "process", p.config.Name, "error", err)
 	}
 
 	// 延迟重启
@@ -171,7 +170,7 @@ func (p *Process) Restart() error {
 	}
 
 	p.restarts++
-	log.Info().Str("process", p.config.Name).Int("restarts", p.restarts).Msg("Process restarted")
+	slog.Debug("Process restarted", "process", p.config.Name, "restarts", p.restarts)
 
 	// 保存状态
 	if p.manager != nil {
@@ -211,9 +210,9 @@ func (p *Process) GetStatus() ProcessStatus {
 func (p *Process) monitor() {
 	_, err := p.cmd.Process.Wait()
 	if err != nil {
-		log.Error().Str("process", p.config.Name).Err(err).Msg("Process exited with error")
+		slog.Error("Process exited with error", "process", p.config.Name, "error", err)
 	} else {
-		log.Info().Str("process", p.config.Name).Msg("Process exited normally")
+		slog.Debug("Process exited normally", "process", p.config.Name)
 	}
 
 	p.status = "stopped"
@@ -225,9 +224,9 @@ func (p *Process) monitor() {
 
 	// 自动重启
 	if p.restarts < p.config.MaxRestarts {
-		log.Info().Str("process", p.config.Name).Int("restarts", p.restarts).Msg("Auto-restarting process")
+		slog.Debug("Auto-restarting process", "process", p.config.Name, "restarts", p.restarts)
 		if err := p.Restart(); err != nil {
-			log.Error().Str("process", p.config.Name).Err(err).Msg("Failed to restart process")
+			slog.Error("Failed to restart process", "process", p.config.Name, "error", err)
 		}
 	}
 }

@@ -2,15 +2,15 @@ package logger
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
 
 	"processmanager/internal/config"
-
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 )
+
+var logger *slog.Logger
 
 // LogManager 日志管理器
 type LogManager struct {
@@ -21,12 +21,8 @@ type LogManager struct {
 func NewLogManager(config config.LogConfig) *LogManager {
 	// 确保日志目录存在
 	if err := os.MkdirAll(config.Path, 0755); err != nil {
-		log.Error().Err(err).Msg("Failed to create log directory")
+		slog.Error("Failed to create log directory", "error", err)
 	}
-
-	// 初始化 zerolog
-	zerolog.TimeFieldFormat = time.RFC3339
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
 
 	return &LogManager{
 		config: config,
@@ -37,12 +33,27 @@ func NewLogManager(config config.LogConfig) *LogManager {
 func InitLogger(config config.LogConfig) {
 	// 确保日志目录存在
 	if err := os.MkdirAll(config.Path, 0755); err != nil {
-		log.Error().Err(err).Msg("Failed to create log directory")
+		slog.Error("Failed to create log directory", "error", err)
 	}
 
-	// 初始化 zerolog
-	zerolog.TimeFieldFormat = time.RFC3339
-	log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr})
+	// 初始化 slog
+	logger = slog.New(slog.NewTextHandler(os.Stderr, nil))
+	slog.SetDefault(logger)
+}
+
+// SetDebug 设置是否启用调试日志
+func SetDebug(debug bool) {
+	var level slog.Level
+	if debug {
+		level = slog.LevelDebug
+	} else {
+		level = slog.LevelInfo
+	}
+
+	logger = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{
+		Level: level,
+	}))
+	slog.SetDefault(logger)
 }
 
 // UpdateConfig 更新配置
@@ -103,13 +114,13 @@ func (lm *LogManager) RotateLog(logPath string) error {
 		// 如果启用了压缩，压缩旧日志文件
 		if lm.config.Compress {
 			if err := lm.compressLog(newLogPath); err != nil {
-				log.Warn().Err(err).Msg("Failed to compress log file")
+				slog.Warn("Failed to compress log file", "error", err)
 			}
 		}
 
 		// 清理旧日志文件
 		if err := lm.cleanupOldLogs(filepath.Dir(logPath)); err != nil {
-			log.Warn().Err(err).Msg("Failed to cleanup old logs")
+			slog.Warn("Failed to cleanup old logs", "error", err)
 		}
 	}
 
@@ -120,7 +131,7 @@ func (lm *LogManager) RotateLog(logPath string) error {
 func (lm *LogManager) compressLog(logPath string) error {
 	// 这里应该实现日志压缩的逻辑
 	// 为了简化，这里只是打印一条日志
-	log.Info().Str("log", logPath).Msg("Compressing log file")
+	slog.Debug("Compressing log file", "log", logPath)
 	return nil
 }
 
@@ -143,7 +154,7 @@ func (lm *LogManager) cleanupOldLogs(logDir string) error {
 	if len(logFiles) > lm.config.MaxFiles {
 		// 这里应该实现按时间排序并删除最旧文件的逻辑
 		// 为了简化，这里只是打印一条日志
-		log.Info().Int("count", len(logFiles)).Int("max", lm.config.MaxFiles).Msg("Cleaning up old logs")
+		slog.Debug("Cleaning up old logs", "count", len(logFiles), "max", lm.config.MaxFiles)
 	}
 
 	return nil
