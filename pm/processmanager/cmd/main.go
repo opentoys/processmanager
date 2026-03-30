@@ -12,6 +12,8 @@ import (
 )
 
 func main() {
+	var pm *manager.ProcessManager
+
 	// 加载配置
 	cfg, err := config.LoadConfig("config.yaml")
 	if err != nil {
@@ -21,9 +23,6 @@ func main() {
 
 	// 初始化日志
 	logger.InitLogger(cfg.Log)
-
-	// 初始化进程管理器
-	pm := manager.NewProcessManager(cfg)
 
 	// 创建命令行应用
 	app := &cli.App{
@@ -40,6 +39,8 @@ func main() {
 			if c.Bool("debug") {
 				logger.SetDebug(true)
 			}
+			// 初始化进程管理器
+			pm = manager.NewProcessManager(cfg)
 			return nil
 		},
 		Commands: []*cli.Command{
