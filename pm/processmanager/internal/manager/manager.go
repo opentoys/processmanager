@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"processmanager/internal/config"
 	"processmanager/internal/logger"
 
+	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v2"
 )
 
@@ -48,15 +50,29 @@ type ProcessManager struct {
 
 // NewProcessManager 创建进程管理器
 func NewProcessManager(cfg *config.Config) *ProcessManager {
+	// 确保状态文件路径是绝对路径
+	stateFile := cfg.StateFile
+	if !filepath.IsAbs(stateFile) {
+		absPath, err := filepath.Abs(stateFile)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to get absolute path for state file")
+		} else {
+			stateFile = absPath
+			log.Info().Str("path", stateFile).Msg("Using absolute path for state file")
+		}
+	}
+
 	pm := &ProcessManager{
 		config:     cfg,
 		processes:  make(map[string]*Process),
 		logManager: logger.NewLogManager(cfg.Log),
-		stateFile:  cfg.StateFile,
+		stateFile:  stateFile,
 	}
 
 	// 加载进程状态
-	pm.loadState()
+	if err := pm.loadState(); err != nil {
+		log.Error().Err(err).Msg("Failed to load state")
+	}
 
 	return pm
 }
@@ -120,8 +136,16 @@ func (pm *ProcessManager) StartProcess(c *cli.Context) error {
 	pm.processes[name] = process
 	process.SetManager(pm)
 
-	// 保存状态
-	pm.saveState()
+	// 打印进程列表大小
+	log.Info().Int("count", len(pm.processes)).Str("process", name).Msg("Process added to list")
+
+	// 同步保存状态
+	log.Info().Msg("Saving state...")
+	if err := pm.saveState(); err != nil {
+		log.Error().Err(err).Msg("Failed to save state")
+	} else {
+		log.Info().Msg("State saved successfully")
+	}
 
 	fmt.Printf("Process %s started successfully\n", name)
 	return nil
@@ -172,25 +196,25 @@ func (pm *ProcessManager) ListProcesses(c *cli.Context) error {
 		)
 	}
 
-	// 保存状态
-	pm.saveState()
+	// 异步保存状态
+	go pm.saveState()
 
 	return nil
 }
 
 // ShowEnv 显示进程环境变量
 func (pm *ProcessManager) ShowEnv(c *cli.Context) error {
-	name := c.Args().First()
-	if name == "" {
-		return fmt.Errorf("process name is required")
+	nameOrID := c.Args().First()
+	if nameOrID == "" {
+		return fmt.Errorf("process name or ID is required")
 	}
 
-	process, ok := pm.processes[name]
-	if !ok {
-		return fmt.Errorf("process %s not found", name)
+	process, err := pm.GetProcessByNameOrID(nameOrID)
+	if err != nil {
+		return err
 	}
 
-	fmt.Printf("Environment variables for process %s:\n", name)
+	fmt.Printf("Environment variables for process %s:\n", process.config.Name)
 	for key, value := range process.config.Env {
 		fmt.Printf("%s=%s\n", key, value)
 	}
@@ -200,14 +224,14 @@ func (pm *ProcessManager) ShowEnv(c *cli.Context) error {
 
 // ShowLog 显示进程日志
 func (pm *ProcessManager) ShowLog(c *cli.Context) error {
-	name := c.Args().First()
-	if name == "" {
-		return fmt.Errorf("process name is required")
+	nameOrID := c.Args().First()
+	if nameOrID == "" {
+		return fmt.Errorf("process name or ID is required")
 	}
 
-	process, ok := pm.processes[name]
-	if !ok {
-		return fmt.Errorf("process %s not found", name)
+	process, err := pm.GetProcessByNameOrID(nameOrID)
+	if err != nil {
+		return err
 	}
 
 	return pm.logManager.TailLog(process.config.LogPath)
@@ -228,89 +252,98 @@ func (pm *ProcessManager) ShowAllLogs(c *cli.Context) error {
 
 // StopProcess 停止进程
 func (pm *ProcessManager) StopProcess(c *cli.Context) error {
-	name := c.Args().First()
-	if name == "" {
-		return fmt.Errorf("process name is required")
+	nameOrID := c.Args().First()
+	if nameOrID == "" {
+		return fmt.Errorf("process name or ID is required")
 	}
 
-	process, ok := pm.processes[name]
-	if !ok {
-		return fmt.Errorf("process %s not found", name)
+	process, err := pm.GetProcessByNameOrID(nameOrID)
+	if err != nil {
+		return err
 	}
 
 	if err := process.Stop(); err != nil {
 		return fmt.Errorf("failed to stop process: %w", err)
 	}
 
-	// 保存状态
-	pm.saveState()
+	// 异步保存状态
+	go func() {
+		if err := pm.saveState(); err != nil {
+			log.Error().Err(err).Msg("Failed to save state")
+		}
+	}()
 
-	fmt.Printf("Process %s stopped successfully\n", name)
+	fmt.Printf("Process %s stopped successfully\n", process.config.Name)
 	return nil
 }
 
 // RestartProcess 重启进程
 func (pm *ProcessManager) RestartProcess(c *cli.Context) error {
-	name := c.Args().First()
-	if name == "" {
-		return fmt.Errorf("process name is required")
+	nameOrID := c.Args().First()
+	if nameOrID == "" {
+		return fmt.Errorf("process name or ID is required")
 	}
 
-	process, ok := pm.processes[name]
-	if !ok {
-		return fmt.Errorf("process %s not found", name)
+	process, err := pm.GetProcessByNameOrID(nameOrID)
+	if err != nil {
+		return err
 	}
 
 	if err := process.Restart(); err != nil {
 		return fmt.Errorf("failed to restart process: %w", err)
 	}
 
-	// 保存状态
-	pm.saveState()
+	// 同步保存状态
+	log.Info().Msg("Saving state...")
+	if err := pm.saveState(); err != nil {
+		log.Error().Err(err).Msg("Failed to save state")
+	} else {
+		log.Info().Msg("State saved successfully")
+	}
 
-	fmt.Printf("Process %s restarted successfully\n", name)
+	fmt.Printf("Process %s restarted successfully\n", process.config.Name)
 	return nil
 }
 
 // DeleteProcess 删除进程
 func (pm *ProcessManager) DeleteProcess(c *cli.Context) error {
-	name := c.Args().First()
-	if name == "" {
-		return fmt.Errorf("process name is required")
+	nameOrID := c.Args().First()
+	if nameOrID == "" {
+		return fmt.Errorf("process name or ID is required")
 	}
 
-	process, ok := pm.processes[name]
-	if !ok {
-		return fmt.Errorf("process %s not found", name)
+	process, err := pm.GetProcessByNameOrID(nameOrID)
+	if err != nil {
+		return err
 	}
 
 	if err := process.Stop(); err != nil {
 		return fmt.Errorf("failed to stop process: %w", err)
 	}
 
-	delete(pm.processes, name)
+	delete(pm.processes, process.config.Name)
 
 	// 保存状态
 	pm.saveState()
 
-	fmt.Printf("Process %s deleted successfully\n", name)
+	fmt.Printf("Process %s deleted successfully\n", process.config.Name)
 	return nil
 }
 
 // ShowStatus 显示进程状态
 func (pm *ProcessManager) ShowStatus(c *cli.Context) error {
-	name := c.Args().First()
-	if name == "" {
-		return fmt.Errorf("process name is required")
+	nameOrID := c.Args().First()
+	if nameOrID == "" {
+		return fmt.Errorf("process name or ID is required")
 	}
 
-	process, ok := pm.processes[name]
-	if !ok {
-		return fmt.Errorf("process %s not found", name)
+	process, err := pm.GetProcessByNameOrID(nameOrID)
+	if err != nil {
+		return err
 	}
 
 	status := process.GetStatus()
-	fmt.Printf("Process %s status:\n", name)
+	fmt.Printf("Process %s status:\n", process.config.Name)
 	fmt.Printf("ID: %s\n", status.ID)
 	fmt.Printf("Name: %s\n", status.Name)
 	fmt.Printf("Status: %s\n", status.Status)
@@ -343,6 +376,29 @@ func (pm *ProcessManager) ReloadConfig(c *cli.Context) error {
 	return nil
 }
 
+// GetProcessByNameOrID 根据名称或 ID 查找进程
+func (pm *ProcessManager) GetProcessByNameOrID(nameOrID string) (*Process, error) {
+	// 检查是否为数字 ID
+	id, err := strconv.Atoi(nameOrID)
+	if err == nil {
+		// 按 ID 查找进程（ID 是索引+1）
+		var processes []*Process
+		for _, process := range pm.processes {
+			processes = append(processes, process)
+		}
+		if id > 0 && id <= len(processes) {
+			return processes[id-1], nil
+		}
+	}
+
+	// 按名称查找进程
+	if process, ok := pm.processes[nameOrID]; ok {
+		return process, nil
+	}
+
+	return nil, fmt.Errorf("process %s not found", nameOrID)
+}
+
 // loadEnvFile 加载环境变量文件
 func loadEnvFile(filePath string, env map[string]string) error {
 	data, err := os.ReadFile(filePath)
@@ -367,11 +423,37 @@ func loadEnvFile(filePath string, env map[string]string) error {
 
 // saveState 保存进程状态
 func (pm *ProcessManager) saveState() error {
+	// 打印调试信息
+	log.Info().Str("stateFile", pm.stateFile).Int("processCount", len(pm.processes)).Msg("Starting to save state")
+
+	// 确保状态文件路径是绝对路径
+	stateFile := pm.stateFile
+	if !filepath.IsAbs(stateFile) {
+		absPath, err := filepath.Abs(stateFile)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to get absolute path for state file")
+			return fmt.Errorf("failed to get absolute path for state file: %w", err)
+		}
+		stateFile = absPath
+		log.Info().Str("path", stateFile).Msg("Using absolute path for state file")
+	}
+
+	// 确保状态文件所在目录存在
+	dir := filepath.Dir(stateFile)
+	log.Info().Str("dir", dir).Msg("Creating directory for state file")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		log.Error().Err(err).Msg("Failed to create directory for state file")
+		return fmt.Errorf("failed to create directory for state file: %w", err)
+	}
+
 	state := StateFile{
 		Processes: make(map[string]ProcessState),
 	}
 
+	// 打印进程列表
+	log.Info().Int("count", len(pm.processes)).Msg("Processes to save")
 	for name, process := range pm.processes {
+		log.Info().Str("name", name).Str("status", process.status).Int("pid", process.pid).Msg("Saving process")
 		state.Processes[name] = ProcessState{
 			ID:           process.id,
 			Name:         process.config.Name,
@@ -390,30 +472,73 @@ func (pm *ProcessManager) saveState() error {
 		}
 	}
 
+	// 打印状态内容
+	log.Info().Int("processCount", len(state.Processes)).Msg("State to save")
+
 	data, err := json.Marshal(state)
 	if err != nil {
+		log.Error().Err(err).Msg("Failed to marshal state")
 		return fmt.Errorf("failed to marshal state: %w", err)
 	}
 
-	if err := os.WriteFile(pm.stateFile, data, 0644); err != nil {
+	// 打印序列化后的数据
+	log.Info().Str("data", string(data)).Msg("Serialized state data")
+
+	log.Info().Str("path", stateFile).Msg("Writing state file")
+	if err := os.WriteFile(stateFile, data, 0644); err != nil {
+		log.Error().Err(err).Str("path", stateFile).Msg("Failed to write state file")
 		return fmt.Errorf("failed to write state file: %w", err)
 	}
 
+	// 验证文件是否被写入
+	fileInfo, err := os.Stat(stateFile)
+	if err != nil {
+		log.Error().Err(err).Str("path", stateFile).Msg("Failed to stat state file")
+	} else {
+		log.Info().Str("path", stateFile).Int64("size", fileInfo.Size()).Msg("State file written successfully")
+	}
+
+	log.Info().Str("path", stateFile).Msg("State saved successfully")
 	return nil
 }
 
 // loadState 加载进程状态
 func (pm *ProcessManager) loadState() error {
-	data, err := os.ReadFile(pm.stateFile)
+	// 确保状态文件路径是绝对路径
+	stateFile := pm.stateFile
+	if !filepath.IsAbs(stateFile) {
+		absPath, err := filepath.Abs(stateFile)
+		if err != nil {
+			log.Error().Err(err).Msg("Failed to get absolute path for state file")
+			return fmt.Errorf("failed to get absolute path for state file: %w", err)
+		}
+		stateFile = absPath
+	}
+
+	data, err := os.ReadFile(stateFile)
 	if err != nil {
 		if os.IsNotExist(err) {
+			log.Info().Str("path", stateFile).Msg("State file not found, creating new one")
+			// 创建空的状态文件
+			emptyState := StateFile{Processes: make(map[string]ProcessState)}
+			data, err := json.Marshal(emptyState)
+			if err != nil {
+				log.Error().Err(err).Msg("Failed to marshal empty state")
+				return fmt.Errorf("failed to marshal empty state: %w", err)
+			}
+			if err := os.WriteFile(stateFile, data, 0644); err != nil {
+				log.Error().Err(err).Str("path", stateFile).Msg("Failed to write empty state file")
+				return fmt.Errorf("failed to write empty state file: %w", err)
+			}
 			return nil
 		}
+		log.Error().Err(err).Str("path", stateFile).Msg("Failed to read state file")
 		return fmt.Errorf("failed to read state file: %w", err)
 	}
 
 	var state StateFile
 	if err := json.Unmarshal(data, &state); err != nil {
+		log.Error().Err(err).Str("path", stateFile).Msg("Failed to unmarshal state")
 		return fmt.Errorf("failed to unmarshal state: %w", err)
 	}
 
@@ -434,7 +559,7 @@ func (pm *ProcessManager) loadState() error {
 		// 创建进程
 		process, err := NewProcess(procConfig, pm.logManager)
 		if err != nil {
-			fmt.Printf("Failed to create process %s: %v\n", processState.Name, err)
+			log.Error().Err(err).Str("process", processState.Name).Msg("Failed to create process")
 			continue
 		}
 
@@ -451,7 +576,9 @@ func (pm *ProcessManager) loadState() error {
 
 		// 添加到进程列表
 		pm.processes[name] = process
+		log.Info().Str("process", name).Msg("Process loaded from state")
 	}
 
+	log.Info().Str("path", stateFile).Msg("State loaded successfully")
 	return nil
 }

@@ -88,9 +88,9 @@ func (p *Process) Start() error {
 
 	log.Info().Str("process", p.config.Name).Int("pid", p.pid).Msg("Process started")
 
-	// 保存状态
+	// 异步保存状态
 	if p.manager != nil {
-		p.manager.saveState()
+		go p.manager.saveState()
 	}
 
 	// 监控进程
@@ -144,9 +144,14 @@ func (p *Process) Stop() error {
 	p.pid = 0
 	log.Info().Str("process", p.config.Name).Msg("Process stopped")
 
-	// 保存状态
+	// 同步保存状态
 	if p.manager != nil {
-		p.manager.saveState()
+		log.Info().Msg("Saving state...")
+		if err := p.manager.saveState(); err != nil {
+			log.Error().Err(err).Msg("Failed to save state")
+		} else {
+			log.Info().Msg("State saved successfully")
+		}
 	}
 
 	return nil
