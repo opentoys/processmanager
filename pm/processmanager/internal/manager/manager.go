@@ -14,7 +14,6 @@ import (
 	"processmanager/internal/config"
 	"processmanager/internal/logger"
 
-	"github.com/rs/zerolog/log"
 	"github.com/urfave/cli/v2"
 )
 
@@ -270,7 +269,7 @@ func (pm *ProcessManager) StopProcess(c *cli.Context) error {
 	// 异步保存状态
 	go func() {
 		if err := pm.saveState(); err != nil {
-			log.Error().Err(err).Msg("Failed to save state")
+			slog.Error("Failed to save state", "error", err)
 		}
 	}()
 
@@ -295,11 +294,11 @@ func (pm *ProcessManager) RestartProcess(c *cli.Context) error {
 	}
 
 	// 同步保存状态
-	log.Info().Msg("Saving state...")
+	slog.Debug("Saving state...")
 	if err := pm.saveState(); err != nil {
-		log.Error().Err(err).Msg("Failed to save state")
+		slog.Error("Failed to save state", "error", err)
 	} else {
-		log.Info().Msg("State saved successfully")
+		slog.Debug("State saved successfully")
 	}
 
 	fmt.Printf("Process %s restarted successfully\n", process.config.Name)

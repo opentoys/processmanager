@@ -2,9 +2,8 @@ package manager
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
-
-	"github.com/rs/zerolog/log"
 )
 
 // Monitor 进程监控
@@ -35,7 +34,7 @@ func (m *Monitor) Start() {
 		for {
 			for name, process := range m.processes {
 				status := process.GetStatus()
-				log.Debug().Str("process", name).Str("status", status.Status).Int("pid", status.PID).Msg("Process status")
+				slog.Debug("Process status", "process", name, "status", status.Status, "pid", status.PID)
 			}
 			time.Sleep(5 * time.Second)
 		}
