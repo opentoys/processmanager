@@ -1,10 +1,13 @@
 package manager
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
+	"time"
 
 	"processmanager/internal/config"
 	"processmanager/internal/logger"
@@ -12,20 +15,43 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
+// ProcessState 进程状态
+type ProcessState struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Status    string    `json:"status"`
+	PID       int       `json:"pid"`
+	StartTime time.Time `json:"start_time"`
+	CreatedAt time.Time `json:"created_at"`
+	Restarts  int       `json:"restarts"`
+}
+
+// StateFile 状态文件
+type StateFile struct {
+	Processes map[string]ProcessState `json:"processes"`
+}
+
 // ProcessManager 进程管理器
 type ProcessManager struct {
 	config     *config.Config
 	processes  map[string]*Process
 	logManager *logger.LogManager
+	stateFile  string
 }
 
 // NewProcessManager 创建进程管理器
 func NewProcessManager(cfg *config.Config) *ProcessManager {
-	return &ProcessManager{
+	pm := &ProcessManager{
 		config:     cfg,
 		processes:  make(map[string]*Process),
 		logManager: logger.NewLogManager(cfg.Log),
+		stateFile:  cfg.StateFile,
 	}
+
+	// 加载进程状态
+	pm.loadState()
+
+	return pm
 }
 
 // StartProcess 启动进程
@@ -85,12 +111,16 @@ func (pm *ProcessManager) StartProcess(c *cli.Context) error {
 
 	// 添加到进程列表
 	pm.processes[name] = process
+	process.SetManager(pm)
 
 	// 保存配置
 	pm.config.Processes = append(pm.config.Processes, *procConfig)
 	if err := config.SaveConfig("config.yaml", pm.config); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
+
+	// 保存状态
+	pm.saveState()
 
 	fmt.Printf("Process %s started successfully\n", name)
 	return nil
@@ -101,10 +131,37 @@ func (pm *ProcessManager) ListProcesses(c *cli.Context) error {
 	fmt.Println("ID	Name	Status	PID	CPU	Memory	Uptime")
 	fmt.Println("---	----	------	---	---	------	------")
 
+	// 将进程转换为切片，以便使用索引
+	var processes []*Process
 	for _, process := range pm.processes {
+		processes = append(processes, process)
+	}
+
+	// 遍历进程切片，使用索引作为 ID
+	for i, process := range processes {
+		// 检查进程是否还在运行
+		if process.status == "running" {
+			// 检查进程是否存在
+			if process.pid > 0 {
+				processObj, err := os.FindProcess(process.pid)
+				if err != nil {
+					process.status = "stopped"
+				} else {
+					// 向进程发送信号 0 来检查进程是否存在
+					if err := processObj.Signal(syscall.Signal(0)); err != nil {
+						process.status = "stopped"
+					}
+				}
+			} else {
+				process.status = "stopped"
+			}
+		}
+
 		status := process.GetStatus()
-		fmt.Printf("%s	%s	%s	%d	%.2f	%d	%d\n",
-			status.ID,
+		// 使用索引+1作为 ID
+		id := i + 1
+		fmt.Printf("%d	%s	%s	%d	%.2f	%d	%d\n",
+			id,
 			status.Name,
 			status.Status,
 			status.PID,
@@ -113,6 +170,9 @@ func (pm *ProcessManager) ListProcesses(c *cli.Context) error {
 			status.Uptime,
 		)
 	}
+
+	// 保存状态
+	pm.saveState()
 
 	return nil
 }
@@ -181,6 +241,9 @@ func (pm *ProcessManager) StopProcess(c *cli.Context) error {
 		return fmt.Errorf("failed to stop process: %w", err)
 	}
 
+	// 保存状态
+	pm.saveState()
+
 	fmt.Printf("Process %s stopped successfully\n", name)
 	return nil
 }
@@ -200,6 +263,9 @@ func (pm *ProcessManager) RestartProcess(c *cli.Context) error {
 	if err := process.Restart(); err != nil {
 		return fmt.Errorf("failed to restart process: %w", err)
 	}
+
+	// 保存状态
+	pm.saveState()
 
 	fmt.Printf("Process %s restarted successfully\n", name)
 	return nil
@@ -235,6 +301,9 @@ func (pm *ProcessManager) DeleteProcess(c *cli.Context) error {
 	if err := config.SaveConfig("config.yaml", pm.config); err != nil {
 		return fmt.Errorf("failed to save config: %w", err)
 	}
+
+	// 保存状态
+	pm.saveState()
 
 	fmt.Printf("Process %s deleted successfully\n", name)
 	return nil
@@ -293,6 +362,8 @@ func (pm *ProcessManager) ReloadConfig(c *cli.Context) error {
 				continue
 			}
 
+			process.SetManager(pm)
+
 			if err := process.Start(); err != nil {
 				fmt.Printf("Failed to start process %s: %v\n", procConfig.Name, err)
 				continue
@@ -320,6 +391,9 @@ func (pm *ProcessManager) ReloadConfig(c *cli.Context) error {
 		}
 	}
 
+	// 保存状态
+	pm.saveState()
+
 	fmt.Println("Configuration reloaded successfully")
 	return nil
 }
@@ -340,6 +414,77 @@ func loadEnvFile(filePath string, env map[string]string) error {
 				value := strings.TrimSpace(strings.Join(parts[1:], "="))
 				env[key] = value
 			}
+		}
+	}
+
+	return nil
+}
+
+// saveState 保存进程状态
+func (pm *ProcessManager) saveState() error {
+	state := StateFile{
+		Processes: make(map[string]ProcessState),
+	}
+
+	for name, process := range pm.processes {
+		state.Processes[name] = ProcessState{
+			ID:        process.id,
+			Name:      process.config.Name,
+			Status:    process.status,
+			PID:       process.pid,
+			StartTime: process.startTime,
+			CreatedAt: process.createdAt,
+			Restarts:  process.restarts,
+		}
+	}
+
+	data, err := json.Marshal(state)
+	if err != nil {
+		return fmt.Errorf("failed to marshal state: %w", err)
+	}
+
+	if err := os.WriteFile(pm.stateFile, data, 0644); err != nil {
+		return fmt.Errorf("failed to write state file: %w", err)
+	}
+
+	return nil
+}
+
+// loadState 加载进程状态
+func (pm *ProcessManager) loadState() error {
+	data, err := os.ReadFile(pm.stateFile)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("failed to read state file: %w", err)
+	}
+
+	var state StateFile
+	if err := json.Unmarshal(data, &state); err != nil {
+		return fmt.Errorf("failed to unmarshal state: %w", err)
+	}
+
+	// 加载进程配置
+	for _, procConfig := range pm.config.Processes {
+		if processState, ok := state.Processes[procConfig.Name]; ok {
+			// 创建进程
+			process, err := NewProcess(&procConfig, pm.logManager)
+			if err != nil {
+				fmt.Printf("Failed to create process %s: %v\n", procConfig.Name, err)
+				continue
+			}
+
+			// 恢复进程状态
+			process.id = processState.ID
+			process.status = processState.Status
+			process.pid = processState.PID
+			process.startTime = processState.StartTime
+			process.createdAt = processState.CreatedAt
+			process.restarts = processState.Restarts
+
+			// 添加到进程列表
+			pm.processes[procConfig.Name] = process
 		}
 	}
 

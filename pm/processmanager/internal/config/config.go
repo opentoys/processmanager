@@ -11,6 +11,7 @@ import (
 type Config struct {
 	Log       LogConfig       `yaml:"log"`
 	Processes []ProcessConfig `yaml:"processes"`
+	StateFile string          `yaml:"state_file"`
 }
 
 // LogConfig 日志配置
@@ -54,6 +55,9 @@ func LoadConfig(filePath string) (*Config, error) {
 	}
 	if config.Log.MaxFiles == 0 {
 		config.Log.MaxFiles = 10
+	}
+	if config.StateFile == "" {
+		config.StateFile = "./pm.state"
 	}
 
 	return &config, nil

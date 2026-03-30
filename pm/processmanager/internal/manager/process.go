@@ -24,6 +24,7 @@ type Process struct {
 	createdAt  time.Time
 	restarts   int
 	id         string
+	manager    *ProcessManager
 }
 
 // NewProcess 创建进程
@@ -41,6 +42,11 @@ func NewProcess(config *config.ProcessConfig, logManager *logger.LogManager) (*P
 		createdAt:  time.Now(),
 		id:         fmt.Sprintf("%d", time.Now().UnixNano()),
 	}, nil
+}
+
+// SetManager 设置进程管理器
+func (p *Process) SetManager(manager *ProcessManager) {
+	p.manager = manager
 }
 
 // Start 启动进程
@@ -82,6 +88,11 @@ func (p *Process) Start() error {
 
 	log.Info().Str("process", p.config.Name).Int("pid", p.pid).Msg("Process started")
 
+	// 保存状态
+	if p.manager != nil {
+		p.manager.saveState()
+	}
+
 	// 监控进程
 	go p.monitor()
 
@@ -90,21 +101,53 @@ func (p *Process) Start() error {
 
 // Stop 停止进程
 func (p *Process) Stop() error {
-	if p.cmd == nil || p.status != "running" {
-		return fmt.Errorf("process is not running")
+	if p.status != "running" {
+		p.status = "stopped"
+		// 保存状态
+		if p.manager != nil {
+			p.manager.saveState()
+		}
+		return nil
 	}
 
-	if err := p.cmd.Process.Kill(); err != nil {
-		return fmt.Errorf("failed to kill process: %w", err)
+	// 尝试通过 cmd.Process 停止进程
+	if p.cmd != nil && p.cmd.Process != nil {
+		if err := p.cmd.Process.Kill(); err != nil {
+			log.Warn().Str("process", p.config.Name).Err(err).Msg("Failed to kill process via cmd.Process")
+			// 继续尝试通过 PID 停止进程
+		} else {
+			_, err := p.cmd.Process.Wait()
+			if err != nil {
+				log.Warn().Str("process", p.config.Name).Err(err).Msg("Failed to wait for process")
+			}
+		}
 	}
 
-	_, err := p.cmd.Process.Wait()
-	if err != nil {
-		return fmt.Errorf("failed to wait for process: %w", err)
+	// 尝试通过 PID 停止进程
+	if p.pid > 0 {
+		process, err := os.FindProcess(p.pid)
+		if err != nil {
+			log.Warn().Str("process", p.config.Name).Err(err).Msg("Failed to find process by PID")
+		} else {
+			if err := process.Kill(); err != nil {
+				log.Warn().Str("process", p.config.Name).Err(err).Msg("Failed to kill process by PID")
+			} else {
+				_, err := process.Wait()
+				if err != nil {
+					log.Warn().Str("process", p.config.Name).Err(err).Msg("Failed to wait for process")
+				}
+			}
+		}
 	}
 
 	p.status = "stopped"
+	p.pid = 0
 	log.Info().Str("process", p.config.Name).Msg("Process stopped")
+
+	// 保存状态
+	if p.manager != nil {
+		p.manager.saveState()
+	}
 
 	return nil
 }
@@ -124,6 +167,11 @@ func (p *Process) Restart() error {
 
 	p.restarts++
 	log.Info().Str("process", p.config.Name).Int("restarts", p.restarts).Msg("Process restarted")
+
+	// 保存状态
+	if p.manager != nil {
+		p.manager.saveState()
+	}
 
 	return nil
 }
@@ -164,6 +212,11 @@ func (p *Process) monitor() {
 	}
 
 	p.status = "stopped"
+
+	// 保存状态
+	if p.manager != nil {
+		p.manager.saveState()
+	}
 
 	// 自动重启
 	if p.restarts < p.config.MaxRestarts {
