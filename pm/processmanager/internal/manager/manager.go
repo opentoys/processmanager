@@ -724,16 +724,17 @@ func (pm *ProcessManager) handleStartCommand(conn net.Conn, argsJSON json.RawMes
 	}
 
 	// 提取参数
-	name, ok := args["name"].(string)
-	if !ok {
-		pm.sendResponse(conn, false, "Missing or invalid name", nil)
-		return
-	}
-
 	script, ok := args["script"].(string)
 	if !ok {
 		pm.sendResponse(conn, false, "Missing or invalid script", nil)
 		return
+	}
+
+	// 提取名称，如果没有指定，使用脚本文件名
+	name, ok := args["name"].(string)
+	if !ok || name == "" {
+		// 使用脚本文件名作为默认名称
+		name = filepath.Base(script)
 	}
 
 	// 提取可选参数

@@ -171,14 +171,12 @@ func main() {
 				Usage: "Start a new process",
 				Flags: []cli.Flag{
 					&cli.StringFlag{
-						Name:     "name",
-						Usage:    "Process name",
-						Required: true,
+						Name:  "name",
+						Usage: "Process name",
 					},
 					&cli.StringFlag{
-						Name:     "script",
-						Usage:    "Script or command to execute",
-						Required: true,
+						Name:  "script",
+						Usage: "Script or command to execute",
 					},
 					&cli.StringSliceFlag{
 						Name:  "args",
@@ -203,10 +201,27 @@ func main() {
 						return fmt.Errorf("pm daemon is not running")
 					}
 
+					// 获取脚本路径
+					script := c.String("script")
+					if script == "" {
+						// 如果没有指定脚本，使用第一个位置参数
+						script = c.Args().First()
+						if script == "" {
+							return fmt.Errorf("script is required")
+						}
+					}
+
+					// 获取进程名称
+					name := c.String("name")
+					if name == "" {
+						// 如果没有指定名称，使用脚本文件名
+						name = filepath.Base(script)
+					}
+
 					// 构建命令参数
 					args := map[string]any{
-						"name":   c.String("name"),
-						"script": c.String("script"),
+						"name":   name,
+						"script": script,
 						"args":   c.StringSlice("args"),
 						"env":    c.String("env"),
 						"log":    c.String("log"),
@@ -228,8 +243,9 @@ func main() {
 				},
 			},
 			{
-				Name:  "list",
-				Usage: "List all managed processes",
+				Name:    "list",
+				Aliases: []string{"ls", "l"},
+				Usage:   "List all managed processes",
 				Action: func(c *cli.Context) error {
 					// 检查守护进程是否正在运行
 					if !isDaemonRunning() {
