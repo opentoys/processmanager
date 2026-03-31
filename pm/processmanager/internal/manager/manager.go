@@ -186,13 +186,13 @@ func (pm *ProcessManager) ListProcesses(c *cli.Context) error {
 		status := process.GetStatus()
 		// 使用索引+1作为 ID
 		id := i + 1
-		fmt.Printf("%d	%s	%s	%d	%.2f	%d	%d\n",
+		fmt.Printf("%d	%s	%s	%d	%.2f	%s	%d\n",
 			id,
 			status.Name,
 			status.Status,
 			status.PID,
 			status.CPU,
-			status.Memory,
+			formatMemory(status.Memory),
 			status.Uptime,
 		)
 	}
@@ -357,7 +357,7 @@ func (pm *ProcessManager) ShowStatus(c *cli.Context) error {
 	fmt.Printf("Status: %s\n", status.Status)
 	fmt.Printf("PID: %d\n", status.PID)
 	fmt.Printf("CPU: %.2f%%\n", status.CPU)
-	fmt.Printf("Memory: %d bytes\n", status.Memory)
+	fmt.Printf("Memory: %d(%s)\n", status.Memory, formatMemory(status.Memory))
 	fmt.Printf("Uptime: %d seconds\n", status.Uptime)
 	fmt.Printf("Restarts: %d\n", status.Restarts)
 	fmt.Printf("Created At: %s\n", status.CreatedAt)
@@ -382,6 +382,40 @@ func (pm *ProcessManager) ReloadConfig(c *cli.Context) error {
 
 	fmt.Println("Configuration reloaded successfully")
 	return nil
+}
+
+// formatMemory 将字节转换为更友好的单位
+func formatMemory(bytes uint64) string {
+	const (
+		_          = iota // ignore first value by assigning to blank identifier
+		KB float64 = 1 << (10 * iota)
+		MB
+		GB
+		TB
+	)
+
+	var unit string
+	var size float64
+
+	switch {
+	case bytes >= uint64(TB):
+		size = float64(bytes) / TB
+		unit = "TB"
+	case bytes >= uint64(GB):
+		size = float64(bytes) / GB
+		unit = "GB"
+	case bytes >= uint64(MB):
+		size = float64(bytes) / MB
+		unit = "MB"
+	case bytes >= uint64(KB):
+		size = float64(bytes) / KB
+		unit = "KB"
+	default:
+		size = float64(bytes)
+		unit = "B"
+	}
+
+	return fmt.Sprintf("%.2f %s", size, unit)
 }
 
 // GetProcessByNameOrID 根据名称或 ID 查找进程

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/shirou/gopsutil/v4/process"
 	"processmanager/internal/config"
 	"processmanager/internal/logger"
 )
@@ -187,8 +188,8 @@ func (p *Process) GetStatus() ProcessStatus {
 	var uptime int64
 
 	if p.status == "running" {
-		// 这里应该实现获取 CPU 和内存使用率的逻辑
-		// 为了简化，这里返回 0
+		// 获取进程的 CPU 和内存占用
+		cpu, memory = p.getProcessUsage()
 		uptime = int64(time.Since(p.startTime).Seconds())
 	}
 
@@ -205,6 +206,38 @@ func (p *Process) GetStatus() ProcessStatus {
 		StartedAt: p.startTime,
 		LogPath:   p.config.LogPath,
 	}
+}
+
+// getProcessUsage 获取进程的 CPU 和内存占用
+func (p *Process) getProcessUsage() (float64, float64) {
+	if p.pid <= 0 {
+		return 0, 0
+	}
+
+	// 使用 gopsutil 包获取进程信息
+	proc, err := process.NewProcess(int32(p.pid))
+	if err != nil {
+		slog.Debug("Failed to create process object", "error", err)
+		return 0, 0
+	}
+
+	// 获取 CPU 使用率
+	cpu, err := proc.CPUPercent()
+	if err != nil {
+		slog.Debug("Failed to get CPU percent", "error", err)
+		cpu = 0
+	}
+
+	// 获取内存使用情况
+	memInfo, err := proc.MemoryInfo()
+	if err != nil {
+		slog.Debug("Failed to get memory info", "error", err)
+		return cpu, 0
+	}
+
+	slog.Debug("Process usage", "cpu", cpu, "memory", memInfo.RSS)
+
+	return cpu, float64(memInfo.RSS)
 }
 
 // monitor 监控进程
