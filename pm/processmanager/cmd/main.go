@@ -1,8 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"net"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"syscall"
 
 	"processmanager/internal/config"
 	"processmanager/internal/logger"
@@ -11,9 +16,128 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-func main() {
-	var pm *manager.ProcessManager
+// Command 客户端发送的命令
+type Command struct {
+	Action string          `json:"action"`
+	Args   json.RawMessage `json:"args"`
+}
 
+// Response 服务端返回的响应
+type Response struct {
+	Success bool   `json:"success"`
+	Message string `json:"message"`
+	Data    any    `json:"data,omitempty"`
+}
+
+// GetWorkspacePath 获取工作目录路径
+func GetWorkspacePath() string {
+	// 检查 PM_WORKSPACE 环境变量
+	if workspace := os.Getenv("PM_WORKSPACE"); workspace != "" {
+		return workspace
+	}
+
+	// 默认使用 $HOME/.pm/
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "./"
+	}
+	return filepath.Join(home, ".pm")
+}
+
+// GetSocketPath 获取 Unix socket 路径
+func GetSocketPath() string {
+	return filepath.Join(GetWorkspacePath(), "pm.sock")
+}
+
+// isDaemonRunning 检查守护进程是否正在运行
+func isDaemonRunning() bool {
+	// 检查 Unix socket 是否存在
+	socketPath := GetSocketPath()
+	if _, err := os.Stat(socketPath); os.IsNotExist(err) {
+		return false
+	}
+
+	// 尝试连接到 Unix socket
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+
+	return true
+}
+
+// sendCommand 发送命令到守护进程
+func sendCommand(action string, args any) (*Response, error) {
+	// 连接到 Unix socket
+	socketPath := GetSocketPath()
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to daemon: %w", err)
+	}
+
+	// 序列化参数
+	argsJSON, err := json.Marshal(args)
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to marshal args: %w", err)
+	}
+
+	// 创建命令
+	cmd := Command{
+		Action: action,
+		Args:   argsJSON,
+	}
+
+	// 序列化命令
+	cmdJSON, err := json.Marshal(cmd)
+	if err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to marshal command: %w", err)
+	}
+
+	// 发送命令
+	if _, err := conn.Write(cmdJSON); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("failed to write command: %w", err)
+	}
+
+	// 对于 log 和 logs 命令，实时接收日志
+	if action == "log" || action == "logs" {
+		readBuf := make([]byte, 4096)
+		for {
+			n, err := conn.Read(readBuf)
+			if err != nil {
+				break
+			}
+			fmt.Print(string(readBuf[:n]))
+		}
+		conn.Close()
+		return &Response{Success: true, Message: ""}, nil
+	}
+
+	// 对于其他命令，读取完整响应
+	var buf []byte
+	readBuf := make([]byte, 4096)
+	for {
+		n, err := conn.Read(readBuf)
+		if err != nil {
+			break
+		}
+		buf = append(buf, readBuf[:n]...)
+	}
+	conn.Close()
+
+	// 反序列化响应
+	var resp Response
+	if err := json.Unmarshal(buf, &resp); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
+	}
+
+	return &resp, nil
+}
+
+func main() {
 	// 加载配置
 	cfg, err := config.LoadConfig("config.json")
 	if err != nil {
@@ -39,8 +163,6 @@ func main() {
 			if c.Bool("debug") {
 				logger.SetDebug(true)
 			}
-			// 初始化进程管理器
-			pm = manager.NewProcessManager(cfg)
 			return nil
 		},
 		Commands: []*cli.Command{
@@ -76,70 +198,455 @@ func main() {
 					},
 				},
 				Action: func(c *cli.Context) error {
-					return pm.StartProcess(c)
+					// 检查守护进程是否正在运行
+					if !isDaemonRunning() {
+						return fmt.Errorf("pm daemon is not running")
+					}
+
+					// 构建命令参数
+					args := map[string]any{
+						"name":   c.String("name"),
+						"script": c.String("script"),
+						"args":   c.StringSlice("args"),
+						"env":    c.String("env"),
+						"log":    c.String("log"),
+						"cwd":    c.String("cwd"),
+					}
+
+					// 发送命令
+					resp, err := sendCommand("start", args)
+					if err != nil {
+						return err
+					}
+
+					if !resp.Success {
+						return fmt.Errorf(resp.Message)
+					}
+
+					fmt.Println(resp.Message)
+					return nil
 				},
 			},
 			{
 				Name:  "list",
 				Usage: "List all managed processes",
 				Action: func(c *cli.Context) error {
-					return pm.ListProcesses(c)
+					// 检查守护进程是否正在运行
+					if !isDaemonRunning() {
+						return fmt.Errorf("pm daemon is not running")
+					}
+
+					// 发送命令
+					resp, err := sendCommand("list", nil)
+					if err != nil {
+						return err
+					}
+
+					if !resp.Success {
+						return fmt.Errorf(resp.Message)
+					}
+
+					// 打印进程列表
+					fmt.Println(resp.Message)
+					return nil
 				},
 			},
 			{
 				Name:  "env",
 				Usage: "Show environment variables for a process",
 				Action: func(c *cli.Context) error {
-					return pm.ShowEnv(c)
+					// 检查守护进程是否正在运行
+					if !isDaemonRunning() {
+						return fmt.Errorf("pm daemon is not running")
+					}
+
+					// 构建命令参数
+					args := map[string]string{
+						"nameOrID": c.Args().First(),
+					}
+
+					// 发送命令
+					resp, err := sendCommand("env", args)
+					if err != nil {
+						return err
+					}
+
+					if !resp.Success {
+						return fmt.Errorf(resp.Message)
+					}
+
+					fmt.Println(resp.Message)
+					return nil
 				},
 			},
 			{
 				Name:  "log",
 				Usage: "Show logs for a process",
 				Action: func(c *cli.Context) error {
-					return pm.ShowLog(c)
+					// 检查守护进程是否正在运行
+					if !isDaemonRunning() {
+						return fmt.Errorf("pm daemon is not running")
+					}
+
+					// 构建命令参数
+					args := map[string]string{
+						"nameOrID": c.Args().First(),
+					}
+
+					// 发送命令
+					resp, err := sendCommand("log", args)
+					if err != nil {
+						return err
+					}
+
+					if !resp.Success {
+						return fmt.Errorf(resp.Message)
+					}
+
+					fmt.Println(resp.Message)
+					return nil
 				},
 			},
 			{
 				Name:  "logs",
 				Usage: "Show logs for all processes",
 				Action: func(c *cli.Context) error {
-					return pm.ShowAllLogs(c)
+					// 检查守护进程是否正在运行
+					if !isDaemonRunning() {
+						return fmt.Errorf("pm daemon is not running")
+					}
+
+					// 发送命令
+					resp, err := sendCommand("logs", nil)
+					if err != nil {
+						return err
+					}
+
+					if !resp.Success {
+						return fmt.Errorf(resp.Message)
+					}
+
+					fmt.Println(resp.Message)
+					return nil
 				},
 			},
 			{
 				Name:  "stop",
 				Usage: "Stop a process",
 				Action: func(c *cli.Context) error {
-					return pm.StopProcess(c)
+					// 检查守护进程是否正在运行
+					if !isDaemonRunning() {
+						return fmt.Errorf("pm daemon is not running")
+					}
+
+					// 构建命令参数
+					args := map[string]string{
+						"nameOrID": c.Args().First(),
+					}
+
+					// 发送命令
+					resp, err := sendCommand("stop", args)
+					if err != nil {
+						return err
+					}
+
+					if !resp.Success {
+						return fmt.Errorf(resp.Message)
+					}
+
+					fmt.Println(resp.Message)
+					return nil
 				},
 			},
 			{
 				Name:  "restart",
 				Usage: "Restart a process",
 				Action: func(c *cli.Context) error {
-					return pm.RestartProcess(c)
+					// 检查守护进程是否正在运行
+					if !isDaemonRunning() {
+						return fmt.Errorf("pm daemon is not running")
+					}
+
+					// 构建命令参数
+					args := map[string]string{
+						"nameOrID": c.Args().First(),
+					}
+
+					// 发送命令
+					resp, err := sendCommand("restart", args)
+					if err != nil {
+						return err
+					}
+
+					if !resp.Success {
+						return fmt.Errorf(resp.Message)
+					}
+
+					fmt.Println(resp.Message)
+					return nil
 				},
 			},
 			{
 				Name:  "delete",
 				Usage: "Delete a process",
 				Action: func(c *cli.Context) error {
-					return pm.DeleteProcess(c)
+					// 检查守护进程是否正在运行
+					if !isDaemonRunning() {
+						return fmt.Errorf("pm daemon is not running")
+					}
+
+					// 构建命令参数
+					args := map[string]string{
+						"nameOrID": c.Args().First(),
+					}
+
+					// 发送命令
+					resp, err := sendCommand("delete", args)
+					if err != nil {
+						return err
+					}
+
+					if !resp.Success {
+						return fmt.Errorf(resp.Message)
+					}
+
+					fmt.Println(resp.Message)
+					return nil
 				},
 			},
 			{
 				Name:  "status",
 				Usage: "Show status for a process",
 				Action: func(c *cli.Context) error {
-					return pm.ShowStatus(c)
+					// 检查守护进程是否正在运行
+					if !isDaemonRunning() {
+						return fmt.Errorf("pm daemon is not running")
+					}
+
+					// 构建命令参数
+					args := map[string]string{
+						"nameOrID": c.Args().First(),
+					}
+
+					// 发送命令
+					resp, err := sendCommand("status", args)
+					if err != nil {
+						return err
+					}
+
+					if !resp.Success {
+						return fmt.Errorf(resp.Message)
+					}
+
+					fmt.Println(resp.Message)
+					return nil
 				},
 			},
 			{
 				Name:  "reload",
 				Usage: "Reload configuration",
 				Action: func(c *cli.Context) error {
-					return pm.ReloadConfig(c)
+					// 检查守护进程是否正在运行
+					if !isDaemonRunning() {
+						return fmt.Errorf("pm daemon is not running")
+					}
+
+					// 发送命令
+					resp, err := sendCommand("reload", nil)
+					if err != nil {
+						return err
+					}
+
+					if !resp.Success {
+						return fmt.Errorf(resp.Message)
+					}
+
+					fmt.Println(resp.Message)
+					return nil
+				},
+			},
+			{
+				Name:  "daemon",
+				Usage: "Manage pm daemon",
+				Subcommands: []*cli.Command{
+					{
+						Name:  "start",
+						Usage: "Start pm as a background daemon",
+						Action: func(c *cli.Context) error {
+							// 检查是否已经在运行
+							if isDaemonRunning() {
+								return fmt.Errorf("pm daemon is already running")
+							}
+
+							// 确保工作目录存在
+							workspace := GetWorkspacePath()
+							if err := os.MkdirAll(workspace, 0755); err != nil {
+								return fmt.Errorf("failed to create workspace directory: %w", err)
+							}
+
+							// 启动后台进程
+							cmd := exec.Command(os.Args[0], "daemon-run")
+							cmd.SysProcAttr = &syscall.SysProcAttr{
+								Setsid: true,
+							}
+							// 打开日志文件
+							logFile, err := os.OpenFile(filepath.Join(workspace, "pm.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+							if err != nil {
+								return fmt.Errorf("failed to open log file: %w", err)
+							}
+							cmd.Stdout = logFile
+							cmd.Stderr = cmd.Stdout
+
+							if err := cmd.Start(); err != nil {
+								return fmt.Errorf("failed to start daemon: %w", err)
+							}
+
+							fmt.Printf("pm daemon started with PID %d\n", cmd.Process.Pid)
+							return nil
+						},
+					},
+					{
+						Name:  "stop",
+						Usage: "Stop pm daemon",
+						Action: func(c *cli.Context) error {
+							// 检查是否在运行
+							if !isDaemonRunning() {
+								return fmt.Errorf("pm daemon is not running")
+							}
+
+							// 发送命令
+							resp, err := sendCommand("stop-daemon", nil)
+							if err != nil {
+								return err
+							}
+
+							if !resp.Success {
+								return fmt.Errorf(resp.Message)
+							}
+
+							fmt.Println(resp.Message)
+							return nil
+						},
+					},
+					{
+						Name:  "status",
+						Usage: "Show pm daemon status",
+						Action: func(c *cli.Context) error {
+							// 检查守护进程是否正在运行
+							if !isDaemonRunning() {
+								return fmt.Errorf("pm daemon is not running")
+							}
+
+							// 发送命令
+							resp, err := sendCommand("daemon-status", nil)
+							if err != nil {
+								return err
+							}
+
+							if !resp.Success {
+								return fmt.Errorf(resp.Message)
+							}
+
+							fmt.Println(resp.Message)
+							return nil
+						},
+					},
+					{
+						Name:  "attach",
+						Usage: "Attach to running pm daemon",
+						Action: func(c *cli.Context) error {
+							// 检查守护进程是否正在运行
+							if !isDaemonRunning() {
+								// 如果守护进程未运行，启动它
+								// 确保工作目录存在
+								workspace := GetWorkspacePath()
+								if err := os.MkdirAll(workspace, 0755); err != nil {
+									return fmt.Errorf("failed to create workspace directory: %w", err)
+								}
+
+								// 启动守护进程
+								cmd := exec.Command(os.Args[0], "daemon-run")
+								// 不设置 Setsid，以便在当前终端运行
+								// 打开日志文件
+								logFile, err := os.OpenFile(filepath.Join(workspace, "pm.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+								if err != nil {
+									return fmt.Errorf("failed to open log file: %w", err)
+								}
+								cmd.Stdout = logFile
+								cmd.Stderr = cmd.Stdout
+
+								if err := cmd.Start(); err != nil {
+									return fmt.Errorf("failed to start daemon: %w", err)
+								}
+
+								fmt.Printf("pm daemon started with PID %d\n", cmd.Process.Pid)
+								// 等待进程退出
+								if err := cmd.Wait(); err != nil {
+									return fmt.Errorf("daemon exited with error: %w", err)
+								}
+								return nil
+							}
+
+							// 守护进程已经在运行，提示用户
+							fmt.Println("pm daemon is already running. Use 'pm daemon status' to check status.")
+							return nil
+						},
+					},
+				},
+			},
+			{
+				Name:  "save",
+				Usage: "Save current managed processes and their states",
+				Action: func(c *cli.Context) error {
+					// 检查守护进程是否正在运行
+					if !isDaemonRunning() {
+						return fmt.Errorf("pm daemon is not running")
+					}
+
+					// 发送命令
+					resp, err := sendCommand("save", nil)
+					if err != nil {
+						return err
+					}
+
+					if !resp.Success {
+						return fmt.Errorf(resp.Message)
+					}
+
+					fmt.Println(resp.Message)
+					return nil
+				},
+			},
+			{
+				Name:  "resurrect",
+				Usage: "Restart services from save file",
+				Action: func(c *cli.Context) error {
+					// 检查守护进程是否正在运行
+					if !isDaemonRunning() {
+						return fmt.Errorf("pm daemon is not running")
+					}
+
+					// 发送命令
+					resp, err := sendCommand("resurrect", nil)
+					if err != nil {
+						return err
+					}
+
+					if !resp.Success {
+						return fmt.Errorf(resp.Message)
+					}
+
+					fmt.Println(resp.Message)
+					return nil
+				},
+			},
+			{
+				Name:   "daemon-run",
+				Hidden: true,
+				Action: func(c *cli.Context) error {
+					// 启动守护进程
+					pm := manager.NewProcessManager(cfg)
+					return pm.StartDaemon()
 				},
 			},
 		},

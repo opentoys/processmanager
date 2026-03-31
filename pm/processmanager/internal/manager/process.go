@@ -8,9 +8,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/shirou/gopsutil/v4/process"
 	"processmanager/internal/config"
 	"processmanager/internal/logger"
+
+	"github.com/shirou/gopsutil/v4/process"
 )
 
 // Process 进程模型
@@ -245,22 +246,32 @@ func (p *Process) monitor() {
 	_, err := p.cmd.Process.Wait()
 	if err != nil {
 		slog.Error("Process exited with error", "process", p.config.Name, "error", err)
+		// 只有当进程异常退出时才尝试重启
+		p.status = "stopped"
+
+		// 保存状态
+		if p.manager != nil {
+			p.manager.saveState()
+		}
+
+		// 自动重启
+		if p.restarts < p.config.MaxRestarts {
+			slog.Info("Auto-restarting process", "process", p.config.Name, "restarts", p.restarts, "max_restarts", p.config.MaxRestarts)
+			if err := p.Restart(); err != nil {
+				slog.Error("Failed to restart process", "process", p.config.Name, "error", err)
+			} else {
+				slog.Info("Process restarted successfully", "process", p.config.Name, "restarts", p.restarts)
+			}
+		} else {
+			slog.Info("Max restarts reached, stopping", "process", p.config.Name, "max_restarts", p.config.MaxRestarts)
+		}
 	} else {
 		slog.Debug("Process exited normally", "process", p.config.Name)
-	}
+		p.status = "stopped"
 
-	p.status = "stopped"
-
-	// 保存状态
-	if p.manager != nil {
-		p.manager.saveState()
-	}
-
-	// 自动重启
-	if p.restarts < p.config.MaxRestarts {
-		slog.Debug("Auto-restarting process", "process", p.config.Name, "restarts", p.restarts)
-		if err := p.Restart(); err != nil {
-			slog.Error("Failed to restart process", "process", p.config.Name, "error", err)
+		// 保存状态
+		if p.manager != nil {
+			p.manager.saveState()
 		}
 	}
 }
