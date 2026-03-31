@@ -33,6 +33,7 @@ type ProcessState struct {
 	Cwd          string            `json:"cwd"`
 	MaxRestarts  int               `json:"max_restarts"`
 	RestartDelay int               `json:"restart_delay"`
+	FullEnv      []string          `json:"full_env"` // 存储完整的环境变量
 }
 
 // StateFile 状态文件
@@ -215,8 +216,15 @@ func (pm *ProcessManager) ShowEnv(c *cli.Context) error {
 	}
 
 	fmt.Printf("Environment variables for process %s:\n", process.config.Name)
-	for key, value := range process.config.Env {
-		fmt.Printf("%s=%s\n", key, value)
+	if process.env != nil {
+		for _, envVar := range process.env {
+			fmt.Printf("%s\n", envVar)
+		}
+	} else {
+		// 如果没有记录的环境变量，显示配置中的环境变量
+		for key, value := range process.config.Env {
+			fmt.Printf("%s=%s\n", key, value)
+		}
 	}
 
 	return nil
@@ -469,6 +477,7 @@ func (pm *ProcessManager) saveState() error {
 			Cwd:          process.config.Cwd,
 			MaxRestarts:  process.config.MaxRestarts,
 			RestartDelay: process.config.RestartDelay,
+			FullEnv:      process.env,
 		}
 	}
 
@@ -570,6 +579,7 @@ func (pm *ProcessManager) loadState() error {
 		process.startTime = processState.StartTime
 		process.createdAt = processState.CreatedAt
 		process.restarts = processState.Restarts
+		process.env = processState.FullEnv
 
 		// 设置管理器
 		process.SetManager(pm)

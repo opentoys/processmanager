@@ -24,6 +24,7 @@ type Process struct {
 	restarts   int
 	id         string
 	manager    *ProcessManager
+	env        []string // 存储启动时的环境变量
 }
 
 // NewProcess 创建进程
@@ -51,19 +52,20 @@ func (p *Process) SetManager(manager *ProcessManager) {
 // Start 启动进程
 func (p *Process) Start() error {
 	// 构建命令
-	cmd := exec.Command(p.config.Script, p.config.Args...)
+	p.cmd = exec.Command(p.config.Script, p.config.Args...)
 
 	// 设置工作目录
 	if p.config.Cwd != "" {
-		cmd.Dir = p.config.Cwd
+		p.cmd.Dir = p.config.Cwd
 	}
 
 	// 设置环境变量
 	env := os.Environ()
-	for key, value := range p.config.Env {
-		env = append(env, fmt.Sprintf("%s=%s", key, value))
+	for k, v := range p.config.Env {
+		env = append(env, fmt.Sprintf("%s=%s", k, v))
 	}
-	cmd.Env = env
+	p.cmd.Env = env
+	p.env = env // 记录当前环境变量
 
 	// 设置日志文件
 	logFile, err := os.OpenFile(p.config.LogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
@@ -72,16 +74,15 @@ func (p *Process) Start() error {
 	}
 	defer logFile.Close()
 
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
+	p.cmd.Stdout = logFile
+	p.cmd.Stderr = logFile
 
 	// 启动进程
-	if err := cmd.Start(); err != nil {
+	if err := p.cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start process: %w", err)
 	}
 
-	p.cmd = cmd
-	p.pid = cmd.Process.Pid
+	p.pid = p.cmd.Process.Pid
 	p.status = "running"
 	p.startTime = time.Now()
 
