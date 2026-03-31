@@ -2,10 +2,7 @@ module processmanager
 
 go 1.20
 
-require (
-	github.com/urfave/cli/v2 v2.25.7
-	gopkg.in/yaml.v3 v3.0.1
-)
+require github.com/urfave/cli/v2 v2.25.7
 
 require (
 	github.com/cpuguy83/go-md2man/v2 v2.0.2 // indirect

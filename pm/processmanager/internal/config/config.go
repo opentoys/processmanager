@@ -1,36 +1,35 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
-
-	"gopkg.in/yaml.v3"
 )
 
 // Config 应用配置
 type Config struct {
-	Log       LogConfig `yaml:"log"`
-	StateFile string    `yaml:"state_file"`
+	Log       LogConfig `json:"log"`
+	StateFile string    `json:"state_file"`
 }
 
 // LogConfig 日志配置
 type LogConfig struct {
-	Path     string `yaml:"path"`
-	MaxSize  int    `yaml:"max_size"`
-	MaxFiles int    `yaml:"max_files"`
-	Compress bool   `yaml:"compress"`
+	Path     string `json:"path"`
+	MaxSize  int    `json:"max_size"`
+	MaxFiles int    `json:"max_files"`
+	Compress bool   `json:"compress"`
 }
 
 // ProcessConfig 进程配置
 type ProcessConfig struct {
-	Name         string            `yaml:"name"`
-	Script       string            `yaml:"script"`
-	Args         []string          `yaml:"args"`
-	Env          map[string]string `yaml:"env"`
-	LogPath      string            `yaml:"log_path"`
-	Cwd          string            `yaml:"cwd"`
-	MaxRestarts  int               `yaml:"max_restarts"`
-	RestartDelay int               `yaml:"restart_delay"`
+	Name         string            `json:"name"`
+	Script       string            `json:"script"`
+	Args         []string          `json:"args"`
+	Env          map[string]string `json:"env"`
+	LogPath      string            `json:"log_path"`
+	Cwd          string            `json:"cwd"`
+	MaxRestarts  int               `json:"max_restarts"`
+	RestartDelay int               `json:"restart_delay"`
 }
 
 // LoadConfig 加载配置文件
@@ -41,7 +40,7 @@ func LoadConfig(filePath string) (*Config, error) {
 	}
 
 	var config Config
-	if err := yaml.Unmarshal(data, &config); err != nil {
+	if err := json.Unmarshal(data, &config); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
@@ -64,7 +63,7 @@ func LoadConfig(filePath string) (*Config, error) {
 
 // SaveConfig 保存配置文件
 func SaveConfig(filePath string, config *Config) error {
-	data, err := yaml.Marshal(config)
+	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal config: %w", err)
 	}

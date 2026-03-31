@@ -15,7 +15,7 @@ func main() {
 	var pm *manager.ProcessManager
 
 	// 加载配置
-	cfg, err := config.LoadConfig("config.yaml")
+	cfg, err := config.LoadConfig("config.json")
 	if err != nil {
 		fmt.Printf("Failed to load config: %v", err)
 		os.Exit(1)
