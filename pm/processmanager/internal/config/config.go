@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"processmanager/internal/utils"
 )
 
 // Config 应用配置
@@ -47,7 +48,7 @@ func LoadConfig(filePath string) (*Config, error) {
 
 	// 设置默认值
 	if config.Log.Path == "" {
-		config.Log.Path = "./logs"
+		config.Log.Path = utils.PMLogDir
 	}
 	if config.Log.MaxSize == 0 {
 		config.Log.MaxSize = 100 // 100MB
@@ -56,7 +57,7 @@ func LoadConfig(filePath string) (*Config, error) {
 		config.Log.MaxFiles = 10
 	}
 	if config.StateFile == "" {
-		config.StateFile = "./pm.state"
+		config.StateFile = utils.PMStateFile
 	}
 	if config.MaxRestarts == 0 {
 		config.MaxRestarts = 255 // 默认最大重启次数为 255

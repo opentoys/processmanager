@@ -10,6 +10,7 @@ import (
 
 	"processmanager/internal/config"
 	"processmanager/internal/logger"
+	"processmanager/internal/utils"
 
 	"github.com/shirou/gopsutil/v4/process"
 )
@@ -40,7 +41,7 @@ func NewProcess(config *config.ProcessConfig, logManager *logger.LogManager) (*P
 	return &Process{
 		config:     config,
 		logManager: logManager,
-		status:     "stopped",
+		status:     utils.ProcessStatusStopped,
 		createdAt:  time.Now(),
 		id:         fmt.Sprintf("%d", time.Now().UnixNano()),
 	}, nil
@@ -85,7 +86,7 @@ func (p *Process) Start() error {
 	}
 
 	p.pid = p.cmd.Process.Pid
-	p.status = "running"
+	p.status = utils.ProcessStatusRunning
 	p.startTime = time.Now()
 	p.restarts = 0 // 重置重启次数为 0
 
@@ -104,8 +105,8 @@ func (p *Process) Start() error {
 
 // Stop 停止进程
 func (p *Process) Stop() error {
-	if p.status != "running" {
-		p.status = "stopped"
+	if p.status != utils.ProcessStatusRunning {
+		p.status = utils.ProcessStatusStopped
 		// 保存状态
 		if p.manager != nil {
 			p.manager.saveState()
@@ -143,7 +144,7 @@ func (p *Process) Stop() error {
 		}
 	}
 
-	p.status = "stopped"
+	p.status = utils.ProcessStatusStopped
 	p.pid = 0
 	slog.Debug("Process stopped", "process", p.config.Name)
 
@@ -189,7 +190,7 @@ func (p *Process) GetStatus() ProcessStatus {
 	var cpu, memory float64
 	var uptime int64
 
-	if p.status == "running" {
+	if p.status == utils.ProcessStatusRunning {
 		// 获取进程的 CPU 和内存占用
 		cpu, memory = p.getProcessUsage()
 		uptime = int64(time.Since(p.startTime).Seconds())
@@ -248,7 +249,7 @@ func (p *Process) monitor() {
 	if err != nil {
 		slog.Error("Process exited with error", "process", p.config.Name, "error", err)
 		// 只有当进程异常退出时才标记为停止
-		p.status = "stopped"
+		p.status = utils.ProcessStatusStopped
 
 		// 保存状态
 		if p.manager != nil {
@@ -259,7 +260,7 @@ func (p *Process) monitor() {
 		slog.Info("Process exited with error, will be checked by monitor", "process", p.config.Name)
 	} else {
 		slog.Debug("Process exited normally", "process", p.config.Name)
-		p.status = "stopped"
+		p.status = utils.ProcessStatusStopped
 
 		// 保存状态
 		if p.manager != nil {

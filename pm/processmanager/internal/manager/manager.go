@@ -15,6 +15,7 @@ import (
 
 	"processmanager/internal/config"
 	"processmanager/internal/logger"
+	"processmanager/internal/utils"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/shirou/gopsutil/v4/process"
@@ -33,9 +34,6 @@ type Response struct {
 	Message string `json:"message"`
 	Data    any    `json:"data,omitempty"`
 }
-
-// SocketPath Unix socket 路径
-const SocketPath = "/tmp/pm.sock"
 
 // ProcessState 进程状态
 type ProcessState struct {
@@ -77,7 +75,7 @@ type ProcessManager struct {
 // GetWorkspacePath 获取工作目录路径
 func GetWorkspacePath() string {
 	// 检查 PM_WORKSPACE 环境变量
-	if workspace := os.Getenv("PM_WORKSPACE"); workspace != "" {
+	if workspace := os.Getenv(utils.PMENV_WORKSPACE); workspace != "" {
 		return workspace
 	}
 
@@ -91,7 +89,7 @@ func GetWorkspacePath() string {
 
 // GetSocketPath 获取 Unix socket 路径
 func GetSocketPath() string {
-	return filepath.Join(GetWorkspacePath(), "pm.sock")
+	return filepath.Join(GetWorkspacePath(), utils.PMSocketFile)
 }
 
 // NewProcessManager 创建进程管理器
@@ -109,10 +107,10 @@ func NewProcessManager(cfg *config.Config) *ProcessManager {
 	}
 
 	// 状态文件路径
-	stateFile := filepath.Join(workspace, "pm.state")
+	stateFile := filepath.Join(workspace, utils.PMStateFile)
 
 	// 配置文件路径
-	configFile := filepath.Join(workspace, "config.json")
+	configFile := filepath.Join(workspace, utils.PMConfigFile)
 
 	// 保存配置到文件
 	if err := config.SaveConfig(configFile, cfg); err != nil {
@@ -123,7 +121,7 @@ func NewProcessManager(cfg *config.Config) *ProcessManager {
 	cfg.Log.Path = logDir
 
 	// PID 文件路径
-	pidFile := filepath.Join(workspace, "pm.pid")
+	pidFile := filepath.Join(workspace, utils.PMPidFile)
 
 	// Socket 路径
 	socketPath := GetSocketPath()
@@ -244,20 +242,20 @@ func (pm *ProcessManager) ListProcesses(c *cli.Context) error {
 	// 遍历进程切片，使用索引作为 ID
 	for i, process := range processes {
 		// 检查进程是否还在运行
-		if process.status == "running" {
+		if process.status == utils.ProcessStatusRunning {
 			// 检查进程是否存在
 			if process.pid > 0 {
 				processObj, err := os.FindProcess(process.pid)
 				if err != nil {
-					process.status = "stopped"
+					process.status = utils.ProcessStatusStopped
 				} else {
 					// 向进程发送信号 0 来检查进程是否存在
 					if err := processObj.Signal(syscall.Signal(0)); err != nil {
-						process.status = "stopped"
+						process.status = utils.ProcessStatusStopped
 					}
 				}
 			} else {
-				process.status = "stopped"
+				process.status = utils.ProcessStatusStopped
 			}
 		}
 
@@ -449,23 +447,6 @@ func (pm *ProcessManager) ShowStatus(c *cli.Context) error {
 	return nil
 }
 
-// ReloadConfig 重新加载配置
-func (pm *ProcessManager) ReloadConfig(c *cli.Context) error {
-	newConfig, err := config.LoadConfig("config.yaml")
-	if err != nil {
-		return fmt.Errorf("failed to load config: %w", err)
-	}
-
-	pm.config = newConfig
-	pm.logManager.UpdateConfig(newConfig.Log)
-
-	// 保存状态
-	pm.saveState()
-
-	fmt.Println("Configuration reloaded successfully")
-	return nil
-}
-
 // IsRunning 检查守护进程是否正在运行
 func (pm *ProcessManager) IsRunning() bool {
 	// 检查 PID 文件是否存在
@@ -507,15 +488,9 @@ func (pm *ProcessManager) StartDaemon() error {
 	}
 
 	// 检查是否存在 pm.save 文件
-	workspace := os.Getenv("PM_WORKSPACE")
-	if workspace == "" {
-		home, err := os.UserHomeDir()
-		if err == nil {
-			workspace = filepath.Join(home, ".pm")
-		}
-	}
+	workspace := GetWorkspacePath()
 
-	saveFile := filepath.Join(workspace, "pm.save")
+	saveFile := filepath.Join(workspace, utils.PMSaveFile)
 	if _, err := os.Stat(saveFile); err == nil {
 		// 存在 pm.save 文件，加载它
 		slog.Info("Loading processes from pm.save file", "file", saveFile)
@@ -557,7 +532,7 @@ func (pm *ProcessManager) StartDaemon() error {
 						slog.Info("Loaded process from pm.save", "process", processState.Name)
 
 						// 如果进程之前是运行状态，启动它
-						if processState.Status == "running" {
+						if processState.Status == utils.ProcessStatusRunning {
 							if err := process.Start(); err != nil {
 								slog.Error("Failed to start process from save data", "error", err, "process", processState.Name)
 							}
@@ -875,20 +850,20 @@ func (pm *ProcessManager) handleListCommand(conn net.Conn) {
 	// 遍历进程切片，使用索引作为 ID
 	for i, process := range processes {
 		// 检查进程是否还在运行
-		if process.status == "running" {
+		if process.status == utils.ProcessStatusRunning {
 			// 检查进程是否存在
 			if process.pid > 0 {
 				processObj, err := os.FindProcess(process.pid)
 				if err != nil {
-					process.status = "stopped"
+					process.status = utils.ProcessStatusStopped
 				} else {
 					// 向进程发送信号 0 来检查进程是否存在
 					if err := processObj.Signal(syscall.Signal(0)); err != nil {
-						process.status = "stopped"
+						process.status = utils.ProcessStatusStopped
 					}
 				}
 			} else {
-				process.status = "stopped"
+				process.status = utils.ProcessStatusStopped
 			}
 		}
 
@@ -1276,7 +1251,8 @@ func (pm *ProcessManager) handleStatusCommand(conn net.Conn, argsJSON json.RawMe
 
 // handleReloadCommand 处理 reload 命令
 func (pm *ProcessManager) handleReloadCommand(conn net.Conn) {
-	newConfig, err := config.LoadConfig("config.json")
+	wsp := GetWorkspacePath()
+	newConfig, err := config.LoadConfig(filepath.Join(wsp, utils.PMConfigFile))
 	if err != nil {
 		pm.sendResponse(conn, false, fmt.Sprintf("Failed to load config: %v", err), nil)
 		return
@@ -1344,15 +1320,7 @@ func (pm *ProcessManager) handleDaemonStatusCommand(conn net.Conn) {
 // handleSaveCommand 处理 save 命令
 func (pm *ProcessManager) handleSaveCommand(conn net.Conn) {
 	// 获取工作目录
-	workspace := os.Getenv("PM_WORKSPACE")
-	if workspace == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			pm.sendResponse(conn, false, "Failed to get home directory", nil)
-			return
-		}
-		workspace = filepath.Join(home, ".pm")
-	}
+	workspace := GetWorkspacePath()
 
 	// 确保工作目录存在
 	if err := os.MkdirAll(workspace, 0755); err != nil {
@@ -1361,7 +1329,7 @@ func (pm *ProcessManager) handleSaveCommand(conn net.Conn) {
 	}
 
 	// 保存文件路径
-	saveFile := filepath.Join(workspace, "pm.save")
+	saveFile := filepath.Join(workspace, utils.PMSaveFile)
 
 	// 构建保存数据
 	saveData := StateFile{
@@ -1408,18 +1376,10 @@ func (pm *ProcessManager) handleSaveCommand(conn net.Conn) {
 // handleResurrectCommand 处理 resurrect 命令
 func (pm *ProcessManager) handleResurrectCommand(conn net.Conn) {
 	// 获取工作目录
-	workspace := os.Getenv("PM_WORKSPACE")
-	if workspace == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			pm.sendResponse(conn, false, "Failed to get home directory", nil)
-			return
-		}
-		workspace = filepath.Join(home, ".pm")
-	}
+	workspace := GetWorkspacePath()
 
 	// 保存文件路径
-	saveFile := filepath.Join(workspace, "pm.save")
+	saveFile := filepath.Join(workspace, utils.PMSaveFile)
 
 	// 读取保存文件
 	data, err := os.ReadFile(saveFile)
@@ -1486,7 +1446,7 @@ func (pm *ProcessManager) handleResurrectCommand(conn net.Conn) {
 		pm.processes[name] = process
 
 		// 如果进程之前是运行状态，启动它
-		if processState.Status == "running" {
+		if processState.Status == utils.ProcessStatusRunning {
 			if err := process.Start(); err != nil {
 				slog.Error("Failed to start process from save data", "error", err, "process", processState.Name)
 			} else {
@@ -1555,13 +1515,13 @@ func (pm *ProcessManager) StopDaemon() error {
 // checkProcesses 检查所有进程的状态
 func (pm *ProcessManager) checkProcesses() {
 	for name, process := range pm.processes {
-		if process.status == "running" {
+		if process.status == utils.ProcessStatusRunning {
 			// 检查进程是否存在
 			if process.pid > 0 {
 				processObj, err := os.FindProcess(process.pid)
 				if err != nil {
 					// 进程不存在，标记为 stopped 并尝试重启
-					process.status = "stopped"
+					process.status = utils.ProcessStatusStopped
 					slog.Info("Process not found, marking as stopped", "process", name)
 
 					// 尝试重启进程
@@ -1583,7 +1543,7 @@ func (pm *ProcessManager) checkProcesses() {
 					// 向进程发送信号 0 来检查进程是否存在
 					if err := processObj.Signal(syscall.Signal(0)); err != nil {
 						// 进程不存在，标记为 stopped 并尝试重启
-						process.status = "stopped"
+						process.status = utils.ProcessStatusStopped
 						slog.Info("Process not responding, marking as stopped", "process", name)
 
 						// 尝试重启进程
@@ -1605,7 +1565,7 @@ func (pm *ProcessManager) checkProcesses() {
 				}
 			} else {
 				// 进程没有 PID，标记为 stopped 并尝试重启
-				process.status = "stopped"
+				process.status = utils.ProcessStatusStopped
 				slog.Info("Process has no PID, marking as stopped", "process", name)
 
 				// 尝试重启进程
@@ -1624,7 +1584,7 @@ func (pm *ProcessManager) checkProcesses() {
 					slog.Info("Max restarts reached, stopping", "process", name, "max_restarts", maxRestarts)
 				}
 			}
-		} else if process.status == "stopped" {
+		} else if process.status == utils.ProcessStatusStopped {
 			// 检查是否需要重启已停止的进程
 			maxRestarts := process.config.MaxRestarts
 			if maxRestarts == 0 {
@@ -1649,29 +1609,22 @@ func (pm *ProcessManager) checkProcesses() {
 
 // formatMemory 将字节转换为更友好的单位
 func formatMemory(bytes uint64) string {
-	const (
-		_          = iota // ignore first value by assigning to blank identifier
-		KB float64 = 1 << (10 * iota)
-		MB
-		GB
-		TB
-	)
 
 	var unit string
 	var size float64
 
 	switch {
-	case bytes >= uint64(TB):
-		size = float64(bytes) / TB
+	case bytes >= uint64(utils.TB):
+		size = float64(bytes) / utils.TB
 		unit = "TB"
-	case bytes >= uint64(GB):
-		size = float64(bytes) / GB
+	case bytes >= uint64(utils.GB):
+		size = float64(bytes) / utils.GB
 		unit = "GB"
-	case bytes >= uint64(MB):
-		size = float64(bytes) / MB
+	case bytes >= uint64(utils.MB):
+		size = float64(bytes) / utils.MB
 		unit = "MB"
-	case bytes >= uint64(KB):
-		size = float64(bytes) / KB
+	case bytes >= uint64(utils.KB):
+		size = float64(bytes) / utils.KB
 		unit = "KB"
 	default:
 		size = float64(bytes)
@@ -1687,18 +1640,12 @@ func formatUptime(seconds int64) string {
 		return "0s"
 	}
 
-	const (
-		day    = 24 * 60 * 60
-		hour   = 60 * 60
-		minute = 60
-	)
-
-	days := seconds / day
-	seconds %= day
-	hours := seconds / hour
-	seconds %= hour
-	minutes := seconds / minute
-	seconds %= minute
+	days := seconds / utils.Day
+	seconds %= utils.Day
+	hours := seconds / utils.Hour
+	seconds %= utils.Hour
+	minutes := seconds / utils.Minute
+	seconds %= utils.Minute
 
 	parts := make([]string, 0, 4)
 
