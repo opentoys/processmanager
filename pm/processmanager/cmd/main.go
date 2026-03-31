@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -294,7 +295,7 @@ func main() {
 					}
 
 					if !resp.Success {
-						return fmt.Errorf(resp.Message)
+						return errors.New(resp.Message)
 					}
 
 					fmt.Println(resp.Message)
@@ -318,7 +319,7 @@ func main() {
 					}
 
 					if !resp.Success {
-						return fmt.Errorf(resp.Message)
+						return errors.New(resp.Message)
 					}
 
 					// 打印进程列表
@@ -332,7 +333,7 @@ func main() {
 				Action: func(c *cli.Context) error {
 					// 检查守护进程是否正在运行
 					if !isDaemonRunning() {
-						return fmt.Errorf("pm daemon is not running")
+						return errors.New("pm daemon is not running")
 					}
 
 					// 构建命令参数
@@ -347,7 +348,7 @@ func main() {
 					}
 
 					if !resp.Success {
-						return fmt.Errorf(resp.Message)
+						return errors.New(resp.Message)
 					}
 
 					fmt.Println(resp.Message)
@@ -375,7 +376,7 @@ func main() {
 					}
 
 					if !resp.Success {
-						return fmt.Errorf(resp.Message)
+						return errors.New(resp.Message)
 					}
 
 					fmt.Println(resp.Message)
@@ -398,7 +399,7 @@ func main() {
 					}
 
 					if !resp.Success {
-						return fmt.Errorf(resp.Message)
+						return errors.New(resp.Message)
 					}
 
 					fmt.Println(resp.Message)
@@ -426,7 +427,7 @@ func main() {
 					}
 
 					if !resp.Success {
-						return fmt.Errorf(resp.Message)
+						return errors.New(resp.Message)
 					}
 
 					fmt.Println(resp.Message)
@@ -454,7 +455,7 @@ func main() {
 					}
 
 					if !resp.Success {
-						return fmt.Errorf(resp.Message)
+						return errors.New(resp.Message)
 					}
 
 					fmt.Println(resp.Message)
@@ -482,7 +483,7 @@ func main() {
 					}
 
 					if !resp.Success {
-						return fmt.Errorf(resp.Message)
+						return errors.New(resp.Message)
 					}
 
 					fmt.Println(resp.Message)
@@ -510,7 +511,7 @@ func main() {
 					}
 
 					if !resp.Success {
-						return fmt.Errorf(resp.Message)
+						return errors.New(resp.Message)
 					}
 
 					fmt.Println(resp.Message)
@@ -533,7 +534,7 @@ func main() {
 					}
 
 					if !resp.Success {
-						return fmt.Errorf(resp.Message)
+						return errors.New(resp.Message)
 					}
 
 					fmt.Println(resp.Message)
@@ -629,7 +630,7 @@ func main() {
 							}
 
 							if !resp.Success {
-								return fmt.Errorf(resp.Message)
+								return errors.New(resp.Message)
 							}
 
 							fmt.Println(resp.Message)
@@ -696,7 +697,7 @@ func main() {
 					}
 
 					if !resp.Success {
-						return fmt.Errorf(resp.Message)
+						return errors.New(resp.Message)
 					}
 
 					fmt.Println(resp.Message)
@@ -719,7 +720,7 @@ func main() {
 					}
 
 					if !resp.Success {
-						return fmt.Errorf(resp.Message)
+						return errors.New(resp.Message)
 					}
 
 					fmt.Println(resp.Message)

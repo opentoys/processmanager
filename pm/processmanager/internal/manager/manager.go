@@ -1331,7 +1331,7 @@ func (pm *ProcessManager) handleDaemonStatusCommand(conn net.Conn) {
 	var output strings.Builder
 	output.WriteString("pm daemon status:\n")
 	output.WriteString(fmt.Sprintf("PID: %d\n", pid))
-	output.WriteString(fmt.Sprintf("Status: running\n"))
+	output.WriteString("Status: running\n")
 	output.WriteString(fmt.Sprintf("CPU: %.2f%%\n", cpuPercent))
 	output.WriteString(fmt.Sprintf("Memory: %d(%s)\n", memoryBytes, formatMemory(memoryBytes)))
 	output.WriteString(fmt.Sprintf("Uptime: %s\n", formatUptime(time.Now().Unix()-startTime)))
