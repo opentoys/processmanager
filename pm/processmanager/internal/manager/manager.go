@@ -154,8 +154,12 @@ func (pm *ProcessManager) StartProcess(c *cli.Context) error {
 
 // ListProcesses 列出所有进程
 func (pm *ProcessManager) ListProcesses(c *cli.Context) error {
-	fmt.Println("ID	Name	Status	PID	CPU	Memory	Uptime")
-	fmt.Println("---	----	------	---	---	------	------")
+	// 打印表格顶部边框
+	fmt.Println("+-----+--------------------+----------+----------+----------+-----------------+----------+")
+	// 打印表头
+	fmt.Printf("| %-3s | %-18s | %-8s | %-8s | %-8s | %-15s | %-8s |\n", "ID", "Name", "Status", "PID", "CPU", "Memory", "Uptime")
+	// 打印表头分隔线
+	fmt.Println("+-----+--------------------+----------+----------+----------+-----------------+----------+")
 
 	// 将进程转换为切片，以便使用索引
 	var processes []*Process
@@ -186,16 +190,20 @@ func (pm *ProcessManager) ListProcesses(c *cli.Context) error {
 		status := process.GetStatus()
 		// 使用索引+1作为 ID
 		id := i + 1
-		fmt.Printf("%d	%s	%s	%d	%.2f	%s	%d\n",
+		// 打印进程信息
+		fmt.Printf("| %-3d | %-18s | %-8s | %-8d | %-8.2f | %-15s | %-8s |\n",
 			id,
 			status.Name,
 			status.Status,
 			status.PID,
 			status.CPU,
 			formatMemory(status.Memory),
-			status.Uptime,
+			formatUptime(status.Uptime),
 		)
 	}
+
+	// 打印表格底部边框
+	fmt.Println("+-----+--------------------+----------+----------+----------+-----------------+----------+")
 
 	// 异步保存状态
 	go pm.saveState()
@@ -358,7 +366,7 @@ func (pm *ProcessManager) ShowStatus(c *cli.Context) error {
 	fmt.Printf("PID: %d\n", status.PID)
 	fmt.Printf("CPU: %.2f%%\n", status.CPU)
 	fmt.Printf("Memory: %d(%s)\n", status.Memory, formatMemory(status.Memory))
-	fmt.Printf("Uptime: %d seconds\n", status.Uptime)
+	fmt.Printf("Uptime: %s\n", formatUptime(status.Uptime))
 	fmt.Printf("Restarts: %d\n", status.Restarts)
 	fmt.Printf("Created At: %s\n", status.CreatedAt)
 	fmt.Printf("Started At: %s\n", status.StartedAt)
@@ -416,6 +424,48 @@ func formatMemory(bytes uint64) string {
 	}
 
 	return fmt.Sprintf("%.2f %s", size, unit)
+}
+
+// formatUptime 将秒数转换为人性化的格式，如 1d12h36m
+func formatUptime(seconds int64) string {
+	if seconds <= 0 {
+		return "0s"
+	}
+
+	const (
+		day    = 24 * 60 * 60
+		hour   = 60 * 60
+		minute = 60
+	)
+
+	days := seconds / day
+	seconds %= day
+	hours := seconds / hour
+	seconds %= hour
+	minutes := seconds / minute
+	seconds %= minute
+
+	parts := make([]string, 0, 4)
+
+	if days > 0 {
+		parts = append(parts, fmt.Sprintf("%dd", days))
+	}
+	if hours > 0 {
+		parts = append(parts, fmt.Sprintf("%dh", hours))
+	}
+	if minutes > 0 {
+		parts = append(parts, fmt.Sprintf("%dm", minutes))
+	}
+	if seconds > 0 && len(parts) < 3 {
+		parts = append(parts, fmt.Sprintf("%ds", seconds))
+	}
+
+	// 最多显示三个单位
+	if len(parts) > 3 {
+		parts = parts[:3]
+	}
+
+	return strings.Join(parts, "")
 }
 
 // GetProcessByNameOrID 根据名称或 ID 查找进程
