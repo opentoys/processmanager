@@ -138,11 +138,32 @@ func sendCommand(action string, args any) (*Response, error) {
 }
 
 func main() {
-	// 加载配置
-	cfg, err := config.LoadConfig("config.json")
+	// 获取工作目录
+	workspace := GetWorkspacePath()
+
+	// 首先尝试从工作目录加载配置文件
+	configFile := filepath.Join(workspace, "config.json")
+	cfg, err := config.LoadConfig(configFile)
 	if err != nil {
-		fmt.Printf("Failed to load config: %v", err)
-		os.Exit(1)
+		// 如果工作目录中没有配置文件，使用默认配置
+		fmt.Printf("Config file not found, using default config: %v\n", err)
+		cfg = &config.Config{}
+		// 设置默认值
+		if cfg.Log.Path == "" {
+			cfg.Log.Path = filepath.Join(workspace, "logs")
+		}
+		if cfg.Log.MaxSize == 0 {
+			cfg.Log.MaxSize = 100 // 100MB
+		}
+		if cfg.Log.MaxFiles == 0 {
+			cfg.Log.MaxFiles = 10
+		}
+		if cfg.StateFile == "" {
+			cfg.StateFile = filepath.Join(workspace, "pm.state")
+		}
+		if cfg.MaxRestarts == 0 {
+			cfg.MaxRestarts = 255 // 默认最大重启次数为 255
+		}
 	}
 
 	// 初始化日志
