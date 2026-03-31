@@ -7,18 +7,18 @@ import (
 	"path/filepath"
 	"time"
 
-	"processmanager/internal/config"
+	"processmanager/internal/utils"
 )
 
 var logger *slog.Logger
 
 // LogManager 日志管理器
 type LogManager struct {
-	config config.LogConfig
+	config utils.LogConfig
 }
 
 // NewLogManager 创建日志管理器
-func NewLogManager(config config.LogConfig) *LogManager {
+func NewLogManager(config utils.LogConfig) *LogManager {
 	// 确保日志目录存在
 	if err := os.MkdirAll(config.Path, 0755); err != nil {
 		slog.Error("Failed to create log directory", "error", err)
@@ -30,7 +30,7 @@ func NewLogManager(config config.LogConfig) *LogManager {
 }
 
 // InitLogger 初始化日志
-func InitLogger(config config.LogConfig) {
+func InitLogger(config utils.LogConfig) {
 	// 确保日志目录存在
 	if err := os.MkdirAll(config.Path, 0755); err != nil {
 		slog.Error("Failed to create log directory", "error", err)
@@ -57,7 +57,7 @@ func SetDebug(debug bool) {
 }
 
 // UpdateConfig 更新配置
-func (lm *LogManager) UpdateConfig(config config.LogConfig) {
+func (lm *LogManager) UpdateConfig(config utils.LogConfig) {
 	lm.config = config
 }
 

@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"processmanager/internal/config"
 	"processmanager/internal/logger"
 	"processmanager/internal/utils"
 
@@ -17,7 +16,7 @@ import (
 
 // Process 进程模型
 type Process struct {
-	config     *config.ProcessConfig
+	config     *utils.ProcessConfig
 	logManager *logger.LogManager
 	cmd        *exec.Cmd
 	pid        int
@@ -31,7 +30,7 @@ type Process struct {
 }
 
 // NewProcess 创建进程
-func NewProcess(config *config.ProcessConfig, logManager *logger.LogManager) (*Process, error) {
+func NewProcess(config *utils.ProcessConfig, logManager *logger.LogManager) (*Process, error) {
 	// 确保日志目录存在
 	logDir := filepath.Dir(config.LogPath)
 	if err := os.MkdirAll(logDir, 0755); err != nil {

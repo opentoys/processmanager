@@ -61,7 +61,7 @@ type StateFile struct {
 
 // ProcessManager 进程管理器
 type ProcessManager struct {
-	config     *config.Config
+	config     *utils.Config
 	processes  map[string]*Process
 	logManager *logger.LogManager
 	stateFile  string
@@ -93,7 +93,7 @@ func GetSocketPath() string {
 }
 
 // NewProcessManager 创建进程管理器
-func NewProcessManager(cfg *config.Config) *ProcessManager {
+func NewProcessManager(cfg *utils.Config) *ProcessManager {
 	// 确保工作目录存在
 	workspace := GetWorkspacePath()
 	if err := os.MkdirAll(workspace, 0755); err != nil {
@@ -183,7 +183,7 @@ func (pm *ProcessManager) StartProcess(c *cli.Context) error {
 	}
 
 	// 创建进程配置
-	procConfig := &config.ProcessConfig{
+	procConfig := &utils.ProcessConfig{
 		Name:         name,
 		Script:       script,
 		Args:         args,
@@ -328,7 +328,6 @@ func (pm *ProcessManager) ShowLog(c *cli.Context) error {
 // ShowAllLogs 显示所有进程日志
 func (pm *ProcessManager) ShowAllLogs(c *cli.Context) error {
 	for name, process := range pm.processes {
-		fmt.Printf("=== Logs for process %s ===\n", name)
 		if err := pm.logManager.TailLog(process.config.LogPath); err != nil {
 			fmt.Printf("Failed to show logs for process %s: %v\n", name, err)
 		}
@@ -501,7 +500,7 @@ func (pm *ProcessManager) StartDaemon() error {
 				// 加载保存的进程
 				for name, processState := range saveData.Processes {
 					// 创建进程配置
-					procConfig := &config.ProcessConfig{
+					procConfig := &utils.ProcessConfig{
 						Name:         processState.Name,
 						Script:       processState.Script,
 						Args:         processState.Args,
@@ -793,7 +792,7 @@ func (pm *ProcessManager) handleStartCommand(conn net.Conn, argsJSON json.RawMes
 	}
 
 	// 创建进程配置
-	procConfig := &config.ProcessConfig{
+	procConfig := &utils.ProcessConfig{
 		Name:         name,
 		Script:       script,
 		Args:         argsSlice,
@@ -1094,7 +1093,6 @@ func (pm *ProcessManager) handleLogsCommand(conn net.Conn) {
 					}
 					if n > 0 {
 						// 发送新的日志数据
-						fmt.Fprintf(conn, "=== Logs for process %s ===\n", name)
 						if _, err := conn.Write(buf[:n]); err != nil {
 							// 客户端断开连接，停止发送
 							return
@@ -1252,14 +1250,12 @@ func (pm *ProcessManager) handleStatusCommand(conn net.Conn, argsJSON json.RawMe
 // handleReloadCommand 处理 reload 命令
 func (pm *ProcessManager) handleReloadCommand(conn net.Conn) {
 	wsp := GetWorkspacePath()
-	newConfig, err := config.LoadConfig(filepath.Join(wsp, utils.PMConfigFile))
+	err := config.LoadConfig(filepath.Join(wsp, utils.PMConfigFile), pm.config)
 	if err != nil {
 		pm.sendResponse(conn, false, fmt.Sprintf("Failed to load config: %v", err), nil)
 		return
 	}
-
-	pm.config = newConfig
-	pm.logManager.UpdateConfig(newConfig.Log)
+	pm.logManager.UpdateConfig(pm.config.Log)
 
 	// 保存状态
 	pm.saveState()
@@ -1412,7 +1408,7 @@ func (pm *ProcessManager) handleResurrectCommand(conn net.Conn) {
 			logPath = filepath.Join(pm.config.Log.Path, processState.Name+"-output.log")
 		}
 
-		procConfig := &config.ProcessConfig{
+		procConfig := &utils.ProcessConfig{
 			Name:         processState.Name,
 			Script:       processState.Script,
 			Args:         processState.Args,
@@ -1871,7 +1867,7 @@ func (pm *ProcessManager) loadState() error {
 	// 加载进程配置
 	for name, processState := range state.Processes {
 		// 创建进程配置
-		procConfig := &config.ProcessConfig{
+		procConfig := &utils.ProcessConfig{
 			Name:         processState.Name,
 			Script:       processState.Script,
 			Args:         processState.Args,

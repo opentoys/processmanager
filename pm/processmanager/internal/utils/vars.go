@@ -17,6 +17,10 @@ const (
 )
 
 const (
+	ProcessManagerName = "pm"
+)
+
+const (
 	ProcessStatusRunning = "running"
 	ProcessStatusStopped = "stopped"
 )

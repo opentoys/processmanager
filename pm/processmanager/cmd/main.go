@@ -11,48 +11,16 @@ import (
 	"processmanager/internal/config"
 	"processmanager/internal/logger"
 	"processmanager/internal/manager"
+	"processmanager/internal/utils"
 
 	"github.com/takama/daemon"
 	"github.com/urfave/cli/v2"
 )
 
-// Command 客户端发送的命令
-type Command struct {
-	Action string          `json:"action"`
-	Args   json.RawMessage `json:"args"`
-}
-
-// Response 服务端返回的响应
-type Response struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
-	Data    any    `json:"data,omitempty"`
-}
-
-// GetWorkspacePath 获取工作目录路径
-func GetWorkspacePath() string {
-	// 检查 PM_WORKSPACE 环境变量
-	if workspace := os.Getenv("PM_WORKSPACE"); workspace != "" {
-		return workspace
-	}
-
-	// 默认使用 $HOME/.pm/
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "./"
-	}
-	return filepath.Join(home, ".pm")
-}
-
-// GetSocketPath 获取 Unix socket 路径
-func GetSocketPath() string {
-	return filepath.Join(GetWorkspacePath(), "pm.sock")
-}
-
 // GetDaemonKind 获取守护进程类型
 func GetDaemonKind(c *cli.Context) daemon.Kind {
 	// 优先使用命令行参数
-	kindStr := os.Getenv("PM_DAEMON_KIND")
+	kindStr := os.Getenv(utils.PMENV_DAEMON_KIND)
 	// 如果命令行参数未设置，尝试从环境变量获取
 	if k := c.String("kind"); k != "" {
 		kindStr = k
@@ -66,14 +34,14 @@ func GetDaemonKind(c *cli.Context) daemon.Kind {
 		return daemon.GlobalDaemon
 	case "SystemDaemon":
 		return daemon.SystemDaemon
-	default:
+	default: // 默认 UserAgent
 		return daemon.UserAgent
 	}
 }
 
 func GetDaemonName(c *cli.Context) string {
 	// 优先使用命令行参数
-	name := os.Getenv("PM_DAEMON_NAME")
+	name := os.Getenv(utils.PMENV_DAEMON_NAME)
 	// 如果命令行参数未设置，尝试从环境变量获取
 	if k := c.String("name"); k != "" {
 		name = k
@@ -91,7 +59,7 @@ func GetDaemonService(c *cli.Context) (daemon.Daemon, error) {
 // isDaemonRunning 检查守护进程是否正在运行
 func isDaemonRunning() bool {
 	// 检查 Unix socket 是否存在
-	socketPath := GetSocketPath()
+	socketPath := utils.GetSocketPath()
 	if _, err := os.Stat(socketPath); os.IsNotExist(err) {
 		return false
 	}
@@ -107,9 +75,9 @@ func isDaemonRunning() bool {
 }
 
 // sendCommand 发送命令到守护进程
-func sendCommand(action string, args any) (*Response, error) {
+func sendCommand(action string, args any) (*utils.Response, error) {
 	// 连接到 Unix socket
-	socketPath := GetSocketPath()
+	socketPath := utils.GetSocketPath()
 	conn, err := net.Dial("unix", socketPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to connect to daemon: %w", err)
@@ -123,7 +91,7 @@ func sendCommand(action string, args any) (*Response, error) {
 	}
 
 	// 创建命令
-	cmd := Command{
+	cmd := utils.Command{
 		Action: action,
 		Args:   argsJSON,
 	}
@@ -152,7 +120,7 @@ func sendCommand(action string, args any) (*Response, error) {
 			fmt.Print(string(readBuf[:n]))
 		}
 		conn.Close()
-		return &Response{Success: true, Message: ""}, nil
+		return &utils.Response{Success: true, Message: ""}, nil
 	}
 
 	// 对于其他命令，读取完整响应
@@ -168,7 +136,7 @@ func sendCommand(action string, args any) (*Response, error) {
 	conn.Close()
 
 	// 反序列化响应
-	var resp Response
+	var resp utils.Response
 	if err := json.Unmarshal(buf, &resp); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
@@ -178,18 +146,18 @@ func sendCommand(action string, args any) (*Response, error) {
 
 func main() {
 	// 获取工作目录
-	workspace := GetWorkspacePath()
+	workspace := utils.GetWorkspacePath()
 
 	// 首先尝试从工作目录加载配置文件
-	configFile := filepath.Join(workspace, "config.json")
-	cfg, err := config.LoadConfig(configFile)
+	configFile := filepath.Join(workspace, utils.PMConfigFile)
+	var cfg = &utils.Config{}
+	err := config.LoadConfig(configFile, cfg)
 	if err != nil {
 		// 如果工作目录中没有配置文件，使用默认配置
 		fmt.Printf("Config file not found, using default config: %v\n", err)
-		cfg = &config.Config{}
 		// 设置默认值
 		if cfg.Log.Path == "" {
-			cfg.Log.Path = filepath.Join(workspace, "logs")
+			cfg.Log.Path = filepath.Join(workspace, utils.PMLogDir)
 		}
 		if cfg.Log.MaxSize == 0 {
 			cfg.Log.MaxSize = 100 // 100MB
@@ -198,7 +166,7 @@ func main() {
 			cfg.Log.MaxFiles = 10
 		}
 		if cfg.StateFile == "" {
-			cfg.StateFile = filepath.Join(workspace, "pm.state")
+			cfg.StateFile = filepath.Join(workspace, utils.PMStateFile)
 		}
 		if cfg.MaxRestarts == 0 {
 			cfg.MaxRestarts = 255 // 默认最大重启次数为 255
@@ -210,7 +178,7 @@ func main() {
 
 	// 创建命令行应用
 	app := &cli.App{
-		Name:  "pm",
+		Name:  utils.ProcessManagerName,
 		Usage: "Process manager",
 		Flags: []cli.Flag{
 			&cli.BoolFlag{

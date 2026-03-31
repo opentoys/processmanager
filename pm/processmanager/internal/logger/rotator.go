@@ -4,19 +4,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"processmanager/internal/utils"
 	"sort"
 	"time"
-
-	"processmanager/internal/config"
 )
 
 // Rotator 日志滚动器
 type Rotator struct {
-	config config.LogConfig
+	config utils.LogConfig
 }
 
 // NewRotator 创建日志滚动器
-func NewRotator(config config.LogConfig) *Rotator {
+func NewRotator(config utils.LogConfig) *Rotator {
 	return &Rotator{
 		config: config,
 	}
