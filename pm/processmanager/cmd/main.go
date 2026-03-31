@@ -5,14 +5,13 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"syscall"
 
 	"processmanager/internal/config"
 	"processmanager/internal/logger"
 	"processmanager/internal/manager"
 
+	"github.com/takama/daemon"
 	"github.com/urfave/cli/v2"
 )
 
@@ -47,6 +46,45 @@ func GetWorkspacePath() string {
 // GetSocketPath 获取 Unix socket 路径
 func GetSocketPath() string {
 	return filepath.Join(GetWorkspacePath(), "pm.sock")
+}
+
+// GetDaemonKind 获取守护进程类型
+func GetDaemonKind(c *cli.Context) daemon.Kind {
+	// 优先使用命令行参数
+	kindStr := os.Getenv("PM_DAEMON_KIND")
+	// 如果命令行参数未设置，尝试从环境变量获取
+	if k := c.String("kind"); k != "" {
+		kindStr = k
+	}
+
+	// 转换为 daemon.Kind
+	switch kindStr {
+	case "GlobalAgent":
+		return daemon.GlobalAgent
+	case "GlobalDaemon":
+		return daemon.GlobalDaemon
+	case "SystemDaemon":
+		return daemon.SystemDaemon
+	default:
+		return daemon.UserAgent
+	}
+}
+
+func GetDaemonName(c *cli.Context) string {
+	// 优先使用命令行参数
+	name := os.Getenv("PM_DAEMON_NAME")
+	// 如果命令行参数未设置，尝试从环境变量获取
+	if k := c.String("name"); k != "" {
+		name = k
+	}
+	if name == "" {
+		name = "pm"
+	}
+	return name
+}
+
+func GetDaemonService(c *cli.Context) (daemon.Daemon, error) {
+	return daemon.New(GetDaemonName(c), "Process manager daemon", GetDaemonKind(c))
 }
 
 // isDaemonRunning 检查守护进程是否正在运行
@@ -505,63 +543,56 @@ func main() {
 			{
 				Name:  "daemon",
 				Usage: "Manage pm daemon",
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:  "kind",
+						Usage: "Daemon kind: UserAgent, GlobalAgent, GlobalDaemon, SystemDaemon.  eq PM_DAEMON_KIND (default: UserAgent)",
+					},
+					&cli.StringFlag{
+						Name:  "name",
+						Usage: "Daemon name. eq PM_DAEMON_NAME (default: pm)",
+					},
+				},
 				Subcommands: []*cli.Command{
 					{
 						Name:  "start",
-						Usage: "Start pm as a background daemon",
+						Usage: "Start pm system service",
 						Action: func(c *cli.Context) error {
-							// 检查是否已经在运行
-							if isDaemonRunning() {
-								return fmt.Errorf("pm daemon is already running")
-							}
-
-							// 确保工作目录存在
-							workspace := GetWorkspacePath()
-							if err := os.MkdirAll(workspace, 0755); err != nil {
-								return fmt.Errorf("failed to create workspace directory: %w", err)
-							}
-
-							// 启动后台进程
-							cmd := exec.Command(os.Args[0], "daemon-run")
-							cmd.SysProcAttr = &syscall.SysProcAttr{
-								Setsid: true,
-							}
-							// 打开日志文件
-							logFile, err := os.OpenFile(filepath.Join(workspace, "pm.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+							// 获取守护进程类型
+							// 定义守护进程
+							service, err := GetDaemonService(c)
 							if err != nil {
-								return fmt.Errorf("failed to open log file: %w", err)
+								return fmt.Errorf("failed to create daemon: %w", err)
 							}
-							cmd.Stdout = logFile
-							cmd.Stderr = cmd.Stdout
 
-							if err := cmd.Start(); err != nil {
+							// 启动服务
+							status, err := service.Start()
+							if err != nil {
 								return fmt.Errorf("failed to start daemon: %w", err)
 							}
 
-							fmt.Printf("pm daemon started with PID %d\n", cmd.Process.Pid)
+							fmt.Printf("pm daemon started: %v\n", status)
 							return nil
 						},
 					},
 					{
 						Name:  "stop",
-						Usage: "Stop pm daemon",
+						Usage: "Stop pm system service",
 						Action: func(c *cli.Context) error {
-							// 检查是否在运行
-							if !isDaemonRunning() {
-								return fmt.Errorf("pm daemon is not running")
-							}
-
-							// 发送命令
-							resp, err := sendCommand("stop-daemon", nil)
+							// 获取守护进程类型
+							// 定义守护进程
+							service, err := GetDaemonService(c)
 							if err != nil {
-								return err
+								return fmt.Errorf("failed to create daemon: %w", err)
 							}
 
-							if !resp.Success {
-								return fmt.Errorf(resp.Message)
+							// 停止服务
+							status, err := service.Stop()
+							if err != nil {
+								return fmt.Errorf("failed to stop daemon: %w", err)
 							}
 
-							fmt.Println(resp.Message)
+							fmt.Printf("pm daemon stopped: %v\n", status)
 							return nil
 						},
 					},
@@ -569,9 +600,26 @@ func main() {
 						Name:  "status",
 						Usage: "Show pm daemon status",
 						Action: func(c *cli.Context) error {
+							// 获取守护进程类型
+							// 定义守护进程
+							service, err := GetDaemonService(c)
+							if err != nil {
+								return fmt.Errorf("failed to create daemon: %w", err)
+							}
+
+							// 获取系统服务状态
+							systemStatus, err := service.Status()
+							if err != nil {
+								return fmt.Errorf("failed to get system service status: %w", err)
+							}
+
+							// 输出系统服务状态
+							fmt.Printf("System service status: %v\n", systemStatus)
+
 							// 检查守护进程是否正在运行
 							if !isDaemonRunning() {
-								return fmt.Errorf("pm daemon is not running")
+								fmt.Println("pm daemon is not running")
+								return nil
 							}
 
 							// 发送命令
@@ -589,43 +637,44 @@ func main() {
 						},
 					},
 					{
-						Name:  "attach",
-						Usage: "Attach to running pm daemon",
+						Name:  "install",
+						Usage: "Install pm as a system service",
 						Action: func(c *cli.Context) error {
-							// 检查守护进程是否正在运行
-							if !isDaemonRunning() {
-								// 如果守护进程未运行，启动它
-								// 确保工作目录存在
-								workspace := GetWorkspacePath()
-								if err := os.MkdirAll(workspace, 0755); err != nil {
-									return fmt.Errorf("failed to create workspace directory: %w", err)
-								}
-
-								// 启动守护进程
-								cmd := exec.Command(os.Args[0], "daemon-run")
-								// 不设置 Setsid，以便在当前终端运行
-								// 打开日志文件
-								logFile, err := os.OpenFile(filepath.Join(workspace, "pm.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-								if err != nil {
-									return fmt.Errorf("failed to open log file: %w", err)
-								}
-								cmd.Stdout = logFile
-								cmd.Stderr = cmd.Stdout
-
-								if err := cmd.Start(); err != nil {
-									return fmt.Errorf("failed to start daemon: %w", err)
-								}
-
-								fmt.Printf("pm daemon started with PID %d\n", cmd.Process.Pid)
-								// 等待进程退出
-								if err := cmd.Wait(); err != nil {
-									return fmt.Errorf("daemon exited with error: %w", err)
-								}
-								return nil
+							// 获取守护进程类型
+							// 定义守护进程
+							service, err := GetDaemonService(c)
+							if err != nil {
+								return fmt.Errorf("failed to create daemon: %w", err)
 							}
 
-							// 守护进程已经在运行，提示用户
-							fmt.Println("pm daemon is already running. Use 'pm daemon status' to check status.")
+							// 安装服务
+							status, err := service.Install("daemon-run")
+							if err != nil {
+								return fmt.Errorf("failed to install daemon: %w", err)
+							}
+
+							fmt.Printf("pm daemon installed: %v\n", status)
+							return nil
+						},
+					},
+					{
+						Name:  "remove",
+						Usage: "Remove pm system service",
+						Action: func(c *cli.Context) error {
+							// 获取守护进程类型
+							// 定义守护进程
+							service, err := GetDaemonService(c)
+							if err != nil {
+								return fmt.Errorf("failed to create daemon: %w", err)
+							}
+
+							// 卸载服务
+							status, err := service.Remove()
+							if err != nil {
+								return fmt.Errorf("failed to remove daemon: %w", err)
+							}
+
+							fmt.Printf("pm daemon removed: %v\n", status)
 							return nil
 						},
 					},
