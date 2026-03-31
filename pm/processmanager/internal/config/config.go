@@ -8,8 +8,9 @@ import (
 
 // Config 应用配置
 type Config struct {
-	Log       LogConfig `json:"log"`
-	StateFile string    `json:"state_file"`
+	Log         LogConfig `json:"log"`
+	StateFile   string    `json:"state_file"`
+	MaxRestarts int       `json:"max_restarts"`
 }
 
 // LogConfig 日志配置
@@ -56,6 +57,9 @@ func LoadConfig(filePath string) (*Config, error) {
 	}
 	if config.StateFile == "" {
 		config.StateFile = "./pm.state"
+	}
+	if config.MaxRestarts == 0 {
+		config.MaxRestarts = 255 // 默认最大重启次数为 255
 	}
 
 	return &config, nil

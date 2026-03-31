@@ -87,6 +87,7 @@ func (p *Process) Start() error {
 	p.pid = p.cmd.Process.Pid
 	p.status = "running"
 	p.startTime = time.Now()
+	p.restarts = 0 // 重置重启次数为 0
 
 	slog.Debug("Process started", "process", p.config.Name, "pid", p.pid)
 
@@ -246,7 +247,7 @@ func (p *Process) monitor() {
 	_, err := p.cmd.Process.Wait()
 	if err != nil {
 		slog.Error("Process exited with error", "process", p.config.Name, "error", err)
-		// 只有当进程异常退出时才尝试重启
+		// 只有当进程异常退出时才标记为停止
 		p.status = "stopped"
 
 		// 保存状态
@@ -254,17 +255,8 @@ func (p *Process) monitor() {
 			p.manager.saveState()
 		}
 
-		// 自动重启
-		if p.restarts < p.config.MaxRestarts {
-			slog.Info("Auto-restarting process", "process", p.config.Name, "restarts", p.restarts, "max_restarts", p.config.MaxRestarts)
-			if err := p.Restart(); err != nil {
-				slog.Error("Failed to restart process", "process", p.config.Name, "error", err)
-			} else {
-				slog.Info("Process restarted successfully", "process", p.config.Name, "restarts", p.restarts)
-			}
-		} else {
-			slog.Info("Max restarts reached, stopping", "process", p.config.Name, "max_restarts", p.config.MaxRestarts)
-		}
+		// 不再在这里自动重启，由 checkProcesses 方法统一处理
+		slog.Info("Process exited with error, will be checked by monitor", "process", p.config.Name)
 	} else {
 		slog.Debug("Process exited normally", "process", p.config.Name)
 		p.status = "stopped"

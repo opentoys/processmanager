@@ -1,8 +1,0 @@
-&{GET /asd HTTP/1.1 1 1 map[Accept:[*/*] User-Agent:[curl/8.7.1]] {} <nil> 0 [] false 127.0.0.1:8123 map[] map[] <nil> map[] 127.0.0.1:52889 /asd <nil> <nil> <nil>  0xc00013a0a0 <nil> [] map[]}
-&{GET /asd HTTP/1.1 1 1 map[Accept:[*/*] User-Agent:[curl/8.7.1]] {} <nil> 0 [] false 127.0.0.1:8123 map[] map[] <nil> map[] 127.0.0.1:52985 /asd <nil> <nil> <nil>  0xc000216050 <nil> [] map[]}
-&{GET /asd HTTP/1.1 1 1 map[Accept:[*/*] User-Agent:[curl/8.7.1]] {} <nil> 0 [] false 127.0.0.1:8123 map[] map[] <nil> map[] 127.0.0.1:52988 /asd <nil> <nil> <nil>  0xc000216140 <nil> [] map[]}
-&{GET /asd HTTP/1.1 1 1 map[Accept:[*/*] User-Agent:[curl/8.7.1]] {} <nil> 0 [] false 127.0.0.1:8123 map[] map[] <nil> map[] 127.0.0.1:60883 /asd <nil> <nil> <nil>  0xc0001320a0 <nil> [] map[]}
-&{GET /asd HTTP/1.1 1 1 map[Accept:[*/*] User-Agent:[curl/8.7.1]] {} <nil> 0 [] false 127.0.0.1:8123 map[] map[] <nil> map[] 127.0.0.1:60960 /asd <nil> <nil> <nil>  0xc00009e050 <nil> [] map[]}
-&{GET /asd HTTP/1.1 1 1 map[Accept:[*/*] User-Agent:[curl/8.7.1]] {} <nil> 0 [] false 127.0.0.1:8123 map[] map[] <nil> map[] 127.0.0.1:60970 /asd <nil> <nil> <nil>  0xc00009e140 <nil> [] map[]}
-&{GET /asd HTTP/1.1 1 1 map[Accept:[*/*] User-Agent:[curl/8.7.1]] {} <nil> 0 [] false 127.0.0.1:8123 map[] map[] <nil> map[] 127.0.0.1:60971 /asd <nil> <nil> <nil>  0xc00009e230 <nil> [] map[]}
-&{GET /asd HTTP/1.1 1 1 map[Accept:[*/*] User-Agent:[curl/8.7.1]] {} <nil> 0 [] false 127.0.0.1:8123 map[] map[] <nil> map[] 127.0.0.1:60979 /asd <nil> <nil> <nil>  0xc00019e050 <nil> [] map[]}

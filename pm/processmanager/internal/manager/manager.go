@@ -603,6 +603,8 @@ func (pm *ProcessManager) StartDaemon() error {
 			os.Remove(pm.pidFile)
 			// 删除 Unix socket 文件
 			os.Remove(pm.socketPath)
+			// 删除状态文件
+			os.Remove(pm.stateFile)
 			return nil
 		default:
 			// 检查进程状态
@@ -799,6 +801,21 @@ func (pm *ProcessManager) handleStartCommand(conn net.Conn, argsJSON json.RawMes
 		logPath = filepath.Join(pm.config.Log.Path, name+"-output.log")
 	}
 
+	// 提取最大重启次数和重启延迟
+	maxRestarts := pm.config.MaxRestarts
+	if args["max_restarts"] != nil {
+		if mr, ok := args["max_restarts"].(float64); ok {
+			maxRestarts = int(mr)
+		}
+	}
+
+	restartDelay := 5
+	if args["restart_delay"] != nil {
+		if rd, ok := args["restart_delay"].(float64); ok {
+			restartDelay = int(rd)
+		}
+	}
+
 	// 创建进程配置
 	procConfig := &config.ProcessConfig{
 		Name:         name,
@@ -807,8 +824,8 @@ func (pm *ProcessManager) handleStartCommand(conn net.Conn, argsJSON json.RawMes
 		Env:          env,
 		LogPath:      logPath,
 		Cwd:          cwd,
-		MaxRestarts:  5,
-		RestartDelay: 5,
+		MaxRestarts:  maxRestarts,
+		RestartDelay: restartDelay,
 	}
 
 	// 创建进程
@@ -842,11 +859,11 @@ func (pm *ProcessManager) handleListCommand(conn net.Conn) {
 	var output strings.Builder
 
 	// 打印表格顶部边框
-	output.WriteString("+-----+--------------------+----------+----------+----------+-----------------+----------+\n")
+	output.WriteString("+-----+--------------------+----------+----------+----------+-----------------+----------+----------+\n")
 	// 打印表头
-	output.WriteString(fmt.Sprintf("| %-3s | %-18s | %-8s | %-8s | %-8s | %-15s | %-8s |\n", "ID", "Name", "Status", "PID", "CPU", "Memory", "Uptime"))
+	output.WriteString(fmt.Sprintf("| %-3s | %-18s | %-8s | %-8s | %-8s | %-15s | %-8s | %-8s |\n", "ID", "Name", "Status", "PID", "CPU", "Memory", "Uptime", "Restarts"))
 	// 打印表头分隔线
-	output.WriteString("+-----+--------------------+----------+----------+----------+-----------------+----------+\n")
+	output.WriteString("+-----+--------------------+----------+----------+----------+-----------------+----------+----------+\n")
 
 	// 将进程转换为切片，以便使用索引
 	var processes []*Process
@@ -878,7 +895,7 @@ func (pm *ProcessManager) handleListCommand(conn net.Conn) {
 		// 使用索引+1作为 ID
 		id := i + 1
 		// 打印进程信息
-		output.WriteString(fmt.Sprintf("| %-3d | %-18s | %-8s | %-8d | %-8.2f | %-15s | %-8s |\n",
+		output.WriteString(fmt.Sprintf("| %-3d | %-18s | %-8s | %-8d | %-8.2f | %-15s | %-8s | %-8d |\n",
 			id,
 			status.Name,
 			status.Status,
@@ -886,11 +903,12 @@ func (pm *ProcessManager) handleListCommand(conn net.Conn) {
 			status.CPU,
 			formatMemory(status.Memory),
 			formatUptime(status.Uptime),
+			status.Restarts,
 		))
 	}
 
 	// 打印表格底部边框
-	output.WriteString("+-----+--------------------+----------+----------+----------+-----------------+----------+\n")
+	output.WriteString("+-----+--------------------+----------+----------+----------+-----------------+----------+----------+\n")
 
 	// 保存状态
 	pm.saveState()
@@ -1524,6 +1542,11 @@ func (pm *ProcessManager) StopDaemon() error {
 		return fmt.Errorf("failed to stop daemon")
 	}
 
+	// 清理残留文件
+	os.Remove(pm.pidFile)
+	os.Remove(pm.socketPath)
+	os.Remove(pm.stateFile)
+
 	fmt.Println("pm daemon stopped")
 	return nil
 }
@@ -1536,32 +1559,85 @@ func (pm *ProcessManager) checkProcesses() {
 			if process.pid > 0 {
 				processObj, err := os.FindProcess(process.pid)
 				if err != nil {
+					// 进程不存在，标记为 stopped 并尝试重启
 					process.status = "stopped"
 					slog.Info("Process not found, marking as stopped", "process", name)
+
+					// 尝试重启进程
+					maxRestarts := process.config.MaxRestarts
+					if maxRestarts == 0 {
+						maxRestarts = pm.config.MaxRestarts
+					}
+					if process.restarts < maxRestarts {
+						slog.Info("Auto-restarting process", "process", name, "restarts", process.restarts, "max_restarts", maxRestarts)
+						if err := process.Restart(); err != nil {
+							slog.Error("Failed to restart process", "process", name, "error", err)
+						} else {
+							slog.Info("Process restarted successfully", "process", name, "restarts", process.restarts)
+						}
+					} else {
+						slog.Info("Max restarts reached, stopping", "process", name, "max_restarts", maxRestarts)
+					}
 				} else {
 					// 向进程发送信号 0 来检查进程是否存在
 					if err := processObj.Signal(syscall.Signal(0)); err != nil {
+						// 进程不存在，标记为 stopped 并尝试重启
 						process.status = "stopped"
 						slog.Info("Process not responding, marking as stopped", "process", name)
+
+						// 尝试重启进程
+						maxRestarts := process.config.MaxRestarts
+						if maxRestarts == 0 {
+							maxRestarts = pm.config.MaxRestarts
+						}
+						if process.restarts < maxRestarts {
+							slog.Info("Auto-restarting process", "process", name, "restarts", process.restarts, "max_restarts", maxRestarts)
+							if err := process.Restart(); err != nil {
+								slog.Error("Failed to restart process", "process", name, "error", err)
+							} else {
+								slog.Info("Process restarted successfully", "process", name, "restarts", process.restarts)
+							}
+						} else {
+							slog.Info("Max restarts reached, stopping", "process", name, "max_restarts", maxRestarts)
+						}
 					}
 				}
 			} else {
+				// 进程没有 PID，标记为 stopped 并尝试重启
 				process.status = "stopped"
 				slog.Info("Process has no PID, marking as stopped", "process", name)
-			}
 
-			// 如果进程已停止，尝试重启
-			if process.status == "stopped" {
-				if process.restarts < process.config.MaxRestarts {
-					slog.Info("Auto-restarting process", "process", name, "restarts", process.restarts, "max_restarts", process.config.MaxRestarts)
+				// 尝试重启进程
+				maxRestarts := process.config.MaxRestarts
+				if maxRestarts == 0 {
+					maxRestarts = pm.config.MaxRestarts
+				}
+				if process.restarts < maxRestarts {
+					slog.Info("Auto-restarting process", "process", name, "restarts", process.restarts, "max_restarts", maxRestarts)
 					if err := process.Restart(); err != nil {
 						slog.Error("Failed to restart process", "process", name, "error", err)
 					} else {
 						slog.Info("Process restarted successfully", "process", name, "restarts", process.restarts)
 					}
 				} else {
-					slog.Info("Max restarts reached, stopping", "process", name, "max_restarts", process.config.MaxRestarts)
+					slog.Info("Max restarts reached, stopping", "process", name, "max_restarts", maxRestarts)
 				}
+			}
+		} else if process.status == "stopped" {
+			// 检查是否需要重启已停止的进程
+			maxRestarts := process.config.MaxRestarts
+			if maxRestarts == 0 {
+				maxRestarts = pm.config.MaxRestarts
+			}
+			if process.restarts < maxRestarts {
+				slog.Info("Auto-restarting stopped process", "process", name, "restarts", process.restarts, "max_restarts", maxRestarts)
+				if err := process.Restart(); err != nil {
+					slog.Error("Failed to restart process", "process", name, "error", err)
+				} else {
+					slog.Info("Process restarted successfully", "process", name, "restarts", process.restarts)
+				}
+			} else {
+				slog.Info("Max restarts reached, stopping", "process", name, "max_restarts", maxRestarts)
 			}
 		}
 	}

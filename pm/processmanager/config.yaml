@@ -1,7 +1,0 @@
-log:
-  path: ./logs
-  max_size: 100  # MB
-  max_files: 10
-  compress: true
-
-processes: []
