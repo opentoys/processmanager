@@ -20,21 +20,7 @@ import (
 	"processmanager/internal/utils"
 
 	"github.com/shirou/gopsutil/v4/process"
-	"github.com/urfave/cli/v2"
 )
-
-// Command 客户端发送的命令
-type Command struct {
-	Action string          `json:"action"`
-	Args   json.RawMessage `json:"args"`
-}
-
-// Response 服务端返回的响应
-type Response struct {
-	Success bool   `json:"success"`
-	Message string `json:"message"`
-	Data    any    `json:"data,omitempty"`
-}
 
 // ProcessState 进程状态
 type ProcessState struct {
@@ -73,30 +59,10 @@ type ProcessManager struct {
 	startTime  time.Time     // 守护进程启动时间
 }
 
-// GetWorkspacePath 获取工作目录路径
-func GetWorkspacePath() string {
-	// 检查 PM_WORKSPACE 环境变量
-	if workspace := os.Getenv(utils.PMENV_WORKSPACE); workspace != "" {
-		return workspace
-	}
-
-	// 默认使用 $HOME/.pm/
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "./"
-	}
-	return filepath.Join(home, ".pm")
-}
-
-// GetSocketPath 获取 Unix socket 路径
-func GetSocketPath() string {
-	return filepath.Join(GetWorkspacePath(), utils.PMSocketFile)
-}
-
 // NewProcessManager 创建进程管理器
 func NewProcessManager(cfg *utils.Config) *ProcessManager {
 	// 确保工作目录存在
-	workspace := GetWorkspacePath()
+	workspace := utils.GetWorkspacePath()
 	if err := os.MkdirAll(workspace, 0755); err != nil {
 		slog.Error("Failed to create workspace directory", "error", err)
 	}
@@ -125,7 +91,7 @@ func NewProcessManager(cfg *utils.Config) *ProcessManager {
 	pidFile := filepath.Join(workspace, utils.PMPidFile)
 
 	// Socket 路径
-	socketPath := GetSocketPath()
+	socketPath := utils.GetSocketPath()
 
 	pm := &ProcessManager{
 		config:     cfg,
@@ -145,279 +111,6 @@ func NewProcessManager(cfg *utils.Config) *ProcessManager {
 	}
 
 	return pm
-}
-
-// StartProcess 启动进程
-func (pm *ProcessManager) StartProcess(c *cli.Context) error {
-	name := c.String("name")
-	script := c.String("script")
-	args := c.StringSlice("args")
-	envFile := c.String("env")
-	logPath := c.String("log")
-	cwd := c.String("cwd")
-
-	// 检查进程是否已存在
-	if _, ok := pm.processes[name]; ok {
-		return fmt.Errorf("process %s already exists", name)
-	}
-
-	// 读取环境变量
-	env := make(map[string]string)
-	if envFile != "" {
-		if err := loadEnvFile(envFile, env); err != nil {
-			return fmt.Errorf("failed to load env file: %w", err)
-		}
-	}
-
-	// 设置工作目录
-	if cwd == "" {
-		cwd, _ = os.Getwd()
-	}
-
-	// 设置日志路径
-	if logPath == "" {
-		// 确保日志目录存在
-		if err := os.MkdirAll(pm.config.Log.Path, 0755); err != nil {
-			return fmt.Errorf("failed to create log directory: %w", err)
-		}
-		logPath = filepath.Join(pm.config.Log.Path, name+"-output.log")
-	}
-
-	// 创建进程配置
-	procConfig := &utils.ProcessConfig{
-		Name:         name,
-		Script:       script,
-		Args:         args,
-		Env:          env,
-		LogPath:      logPath,
-		Cwd:          cwd,
-		MaxRestarts:  10,
-		RestartDelay: 5,
-	}
-
-	// 创建进程
-	process, err := NewProcess(procConfig, pm.logManager)
-	if err != nil {
-		return fmt.Errorf("failed to create process: %w", err)
-	}
-
-	// 启动进程
-	if err := process.Start(); err != nil {
-		return fmt.Errorf("failed to start process: %w", err)
-	}
-
-	// 添加到进程列表
-	pm.processes[name] = process
-	process.SetManager(pm)
-
-	// 打印进程列表大小
-	slog.Debug("Process added to list", "count", len(pm.processes), "process", name)
-
-	// 同步保存状态
-	slog.Debug("Saving state...")
-	if err := pm.saveState(); err != nil {
-		slog.Error("Failed to save state", "error", err)
-	} else {
-		slog.Debug("State saved successfully")
-	}
-
-	fmt.Printf("Process %s started successfully\n", name)
-	return nil
-}
-
-// ListProcesses 列出所有进程
-func (pm *ProcessManager) ListProcesses(c *cli.Context) error {
-	// 打印表格顶部边框
-	fmt.Println("+-----+--------------------+----------+----------+----------+-----------------+----------+")
-	// 打印表头
-	fmt.Printf("| %-3s | %-18s | %-8s | %-8s | %-8s | %-15s | %-8s |\n", "ID", "Name", "Status", "PID", "CPU", "Memory", "Uptime")
-	// 打印表头分隔线
-	fmt.Println("+-----+--------------------+----------+----------+----------+-----------------+----------+")
-
-	// 将进程转换为切片，以便使用索引
-	var processes []*Process
-	for _, process := range pm.processes {
-		processes = append(processes, process)
-	}
-
-	// 遍历进程切片，使用索引作为 ID
-	for i, process := range processes {
-		// 检查进程是否还在运行
-		if process.status == utils.ProcessStatusRunning {
-			// 检查进程是否存在
-			if process.pid > 0 {
-				processObj, err := os.FindProcess(process.pid)
-				if err != nil {
-					process.status = utils.ProcessStatusStopped
-				} else {
-					// 向进程发送信号 0 来检查进程是否存在
-					if err := processObj.Signal(syscall.Signal(0)); err != nil {
-						process.status = utils.ProcessStatusStopped
-					}
-				}
-			} else {
-				process.status = utils.ProcessStatusStopped
-			}
-		}
-
-		status := process.GetStatus()
-		// 使用索引+1作为 ID
-		id := i + 1
-		// 打印进程信息
-		fmt.Printf("| %-3d | %-18s | %-8s | %-8d | %-8.2f | %-15s | %-8s |\n",
-			id,
-			status.Name,
-			status.Status,
-			status.PID,
-			status.CPU,
-			formatMemory(status.Memory),
-			formatUptime(status.Uptime),
-		)
-	}
-
-	// 打印表格底部边框
-	fmt.Println("+-----+--------------------+----------+----------+----------+-----------------+----------+")
-
-	// 异步保存状态
-	go pm.saveState()
-
-	return nil
-}
-
-// ShowEnv 显示进程环境变量
-func (pm *ProcessManager) ShowEnv(c *cli.Context) error {
-	nameOrID := c.Args().First()
-	if nameOrID == "" {
-		return fmt.Errorf("process name or ID is required")
-	}
-
-	process, err := pm.GetProcessByNameOrID(nameOrID)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("Environment variables for process %s:\n", process.config.Name)
-	if process.env != nil {
-		for _, envVar := range process.env {
-			fmt.Printf("%s\n", envVar)
-		}
-	} else {
-		// 如果没有记录的环境变量，显示配置中的环境变量
-		for key, value := range process.config.Env {
-			fmt.Printf("%s=%s\n", key, value)
-		}
-	}
-
-	return nil
-}
-
-// StopProcess 停止进程
-func (pm *ProcessManager) StopProcess(c *cli.Context) error {
-	nameOrID := c.Args().First()
-	if nameOrID == "" {
-		return fmt.Errorf("process name or ID is required")
-	}
-
-	process, err := pm.GetProcessByNameOrID(nameOrID)
-	if err != nil {
-		return err
-	}
-
-	if err := process.Stop(); err != nil {
-		return fmt.Errorf("failed to stop process: %w", err)
-	}
-
-	// 异步保存状态
-	go func() {
-		if err := pm.saveState(); err != nil {
-			slog.Error("Failed to save state", "error", err)
-		}
-	}()
-
-	fmt.Printf("Process %s stopped successfully\n", process.config.Name)
-	return nil
-}
-
-// RestartProcess 重启进程
-func (pm *ProcessManager) RestartProcess(c *cli.Context) error {
-	nameOrID := c.Args().First()
-	if nameOrID == "" {
-		return fmt.Errorf("process name or ID is required")
-	}
-
-	process, err := pm.GetProcessByNameOrID(nameOrID)
-	if err != nil {
-		return err
-	}
-
-	if err := process.Restart(); err != nil {
-		return fmt.Errorf("failed to restart process: %w", err)
-	}
-
-	// 同步保存状态
-	slog.Debug("Saving state...")
-	if err := pm.saveState(); err != nil {
-		slog.Error("Failed to save state", "error", err)
-	} else {
-		slog.Debug("State saved successfully")
-	}
-
-	fmt.Printf("Process %s restarted successfully\n", process.config.Name)
-	return nil
-}
-
-// DeleteProcess 删除进程
-func (pm *ProcessManager) DeleteProcess(c *cli.Context) error {
-	nameOrID := c.Args().First()
-	if nameOrID == "" {
-		return fmt.Errorf("process name or ID is required")
-	}
-
-	process, err := pm.GetProcessByNameOrID(nameOrID)
-	if err != nil {
-		return err
-	}
-
-	if err := process.Stop(); err != nil {
-		return fmt.Errorf("failed to stop process: %w", err)
-	}
-
-	delete(pm.processes, process.config.Name)
-
-	// 保存状态
-	pm.saveState()
-
-	fmt.Printf("Process %s deleted successfully\n", process.config.Name)
-	return nil
-}
-
-// ShowStatus 显示进程状态
-func (pm *ProcessManager) ShowStatus(c *cli.Context) error {
-	nameOrID := c.Args().First()
-	if nameOrID == "" {
-		return fmt.Errorf("process name or ID is required")
-	}
-
-	process, err := pm.GetProcessByNameOrID(nameOrID)
-	if err != nil {
-		return err
-	}
-
-	status := process.GetStatus()
-	fmt.Printf("Process %s status:\n", process.config.Name)
-	fmt.Printf("ID: %s\n", status.ID)
-	fmt.Printf("Name: %s\n", status.Name)
-	fmt.Printf("Status: %s\n", status.Status)
-	fmt.Printf("PID: %d\n", status.PID)
-	fmt.Printf("CPU: %.2f%%\n", status.CPU)
-	fmt.Printf("Memory: %d(%s)\n", status.Memory, formatMemory(status.Memory))
-	fmt.Printf("Uptime: %s\n", formatUptime(status.Uptime))
-	fmt.Printf("Restarts: %d\n", status.Restarts)
-	fmt.Printf("Created At: %s\n", status.CreatedAt)
-	fmt.Printf("Started At: %s\n", status.StartedAt)
-	fmt.Printf("Log Path: %s\n", status.LogPath)
-
-	return nil
 }
 
 // IsRunning 检查守护进程是否正在运行
@@ -461,7 +154,7 @@ func (pm *ProcessManager) StartDaemon() error {
 	}
 
 	// 检查是否存在 pm.save 文件
-	workspace := GetWorkspacePath()
+	workspace := utils.GetWorkspacePath()
 
 	saveFile := filepath.Join(workspace, utils.PMSaveFile)
 	if _, err := os.Stat(saveFile); err == nil {
@@ -609,7 +302,7 @@ func (pm *ProcessManager) handleConnection(conn net.Conn) {
 	}
 
 	// 反序列化命令
-	var cmd Command
+	var cmd utils.Command
 	if err := json.Unmarshal(buf[:n], &cmd); err != nil {
 		slog.Error("Failed to unmarshal command", "error", err)
 		pm.sendResponse(conn, false, "Invalid command format", nil)
@@ -621,7 +314,7 @@ func (pm *ProcessManager) handleConnection(conn net.Conn) {
 }
 
 // handleCommand 处理客户端命令
-func (pm *ProcessManager) handleCommand(conn net.Conn, cmd Command) {
+func (pm *ProcessManager) handleCommand(conn net.Conn, cmd utils.Command) {
 	switch cmd.Action {
 	case "start":
 		pm.handleStartCommand(conn, cmd.Args)
@@ -658,7 +351,7 @@ func (pm *ProcessManager) handleCommand(conn net.Conn, cmd Command) {
 
 // sendResponse 发送响应给客户端
 func (pm *ProcessManager) sendResponse(conn net.Conn, success bool, message string, data any) {
-	resp := Response{
+	resp := utils.Response{
 		Success: success,
 		Message: message,
 		Data:    data,
@@ -1179,7 +872,7 @@ func (pm *ProcessManager) handleStatusCommand(conn net.Conn, argsJSON json.RawMe
 
 // handleReloadCommand 处理 reload 命令
 func (pm *ProcessManager) handleReloadCommand(conn net.Conn) {
-	wsp := GetWorkspacePath()
+	wsp := utils.GetWorkspacePath()
 	err := config.LoadConfig(filepath.Join(wsp, utils.PMConfigFile), pm.config)
 	if err != nil {
 		pm.sendResponse(conn, false, fmt.Sprintf("Failed to load config: %v", err), nil)
@@ -1265,7 +958,7 @@ func (pm *ProcessManager) handleDaemonStatusCommand(conn net.Conn) {
 // handleSaveCommand 处理 save 命令
 func (pm *ProcessManager) handleSaveCommand(conn net.Conn) {
 	// 获取工作目录
-	workspace := GetWorkspacePath()
+	workspace := utils.GetWorkspacePath()
 
 	// 确保工作目录存在
 	if err := os.MkdirAll(workspace, 0755); err != nil {
@@ -1321,7 +1014,7 @@ func (pm *ProcessManager) handleSaveCommand(conn net.Conn) {
 // handleResurrectCommand 处理 resurrect 命令
 func (pm *ProcessManager) handleResurrectCommand(conn net.Conn) {
 	// 获取工作目录
-	workspace := GetWorkspacePath()
+	workspace := utils.GetWorkspacePath()
 
 	// 保存文件路径
 	saveFile := filepath.Join(workspace, utils.PMSaveFile)
@@ -1405,56 +1098,6 @@ func (pm *ProcessManager) handleResurrectCommand(conn net.Conn) {
 	pm.saveState()
 
 	pm.sendResponse(conn, true, fmt.Sprintf("Successfully resurrected %d processes", restarted), nil)
-}
-
-// StopDaemon 停止守护进程
-func (pm *ProcessManager) StopDaemon() error {
-	// 检查是否在运行
-	if !pm.IsRunning() {
-		return fmt.Errorf("pm daemon is not running")
-	}
-
-	// 读取 PID 文件
-	data, err := os.ReadFile(pm.pidFile)
-	if err != nil {
-		return fmt.Errorf("failed to read pid file: %w", err)
-	}
-
-	// 解析 PID
-	pid, err := strconv.Atoi(string(data))
-	if err != nil {
-		return fmt.Errorf("invalid pid in pid file: %w", err)
-	}
-
-	// 发送 SIGTERM 信号
-	process, err := os.FindProcess(pid)
-	if err != nil {
-		return fmt.Errorf("failed to find process: %w", err)
-	}
-
-	if err := process.Signal(syscall.SIGTERM); err != nil {
-		return fmt.Errorf("failed to send signal: %w", err)
-	}
-
-	// 等待进程退出
-	for i := 0; i < 10; i++ {
-		if !pm.IsRunning() {
-			break
-		}
-		time.Sleep(1 * time.Second)
-	}
-
-	if pm.IsRunning() {
-		return fmt.Errorf("failed to stop daemon")
-	}
-
-	// 清理残留文件
-	os.Remove(pm.pidFile)
-	os.Remove(pm.socketPath)
-	os.Remove(pm.stateFile)
-
-	fmt.Println("pm daemon stopped")
-	return nil
 }
 
 // checkProcesses 检查所有进程的状态

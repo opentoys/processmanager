@@ -29,7 +29,6 @@ type Process struct {
 	manager    *ProcessManager
 	env        []string       // 存储启动时的环境变量
 	logWriter  *LogWriter     // 多写日志写入器（文件 + 监听器）
-	logDone    chan struct{}  // 日志 goroutine 退出信号
 }
 
 // NewProcess 创建进程
@@ -79,7 +78,6 @@ func (p *Process) Start() error {
 		MaxFiles: p.logManager.MaxFiles(),
 		Compress: p.logManager.Compress(),
 	})
-	p.logDone = make(chan struct{})
 
 	// 获取 stdout 和 stderr 的管道
 	stdoutPipe, err := p.cmd.StdoutPipe()
@@ -117,7 +115,6 @@ func (p *Process) Start() error {
 		io.Copy(p.logWriter, stderrPipe)
 		// stdout/stderr 都关闭后，关闭 logWriter 中的文件
 		p.logWriter.Close()
-		close(p.logDone)
 	}()
 
 	// 监控进程
