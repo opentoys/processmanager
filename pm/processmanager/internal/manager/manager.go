@@ -2,11 +2,13 @@ package manager
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -17,7 +19,6 @@ import (
 	"processmanager/internal/logger"
 	"processmanager/internal/utils"
 
-	"github.com/fsnotify/fsnotify"
 	"github.com/shirou/gopsutil/v4/process"
 	"github.com/urfave/cli/v2"
 )
@@ -564,6 +565,16 @@ func (pm *ProcessManager) StartDaemon() error {
 	pm.running = true
 	slog.Info("pm daemon started", "pid", pid, "socket", pm.socketPath)
 
+	// 监听系统信号，优雅关闭
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
+	go func() {
+		sig := <-sigChan
+		slog.Info("Received signal, shutting down", "signal", sig)
+		pm.stopAllProcesses()
+		pm.stopChan <- struct{}{}
+	}()
+
 	// 启动 Unix socket 服务器
 	go pm.runSocketServer(listener)
 
@@ -615,7 +626,12 @@ func (pm *ProcessManager) handleConnection(conn net.Conn) {
 	buf := make([]byte, 4096)
 	n, err := conn.Read(buf)
 	if err != nil {
-		slog.Error("Failed to read command", "error", err)
+		// 客户端断开连接是正常行为（如 log/logs 命令结束），不视为错误
+		if isConnectionClosed(err) {
+			slog.Debug("Client disconnected before sending command")
+		} else {
+			slog.Error("Failed to read command", "error", err)
+		}
 		return
 	}
 
@@ -943,171 +959,112 @@ func (pm *ProcessManager) handleLogCommand(conn net.Conn, argsJSON json.RawMessa
 		return
 	}
 
-	process, err := pm.GetProcessByNameOrID(nameOrID)
+	proc, err := pm.GetProcessByNameOrID(nameOrID)
 	if err != nil {
 		pm.sendResponse(conn, false, err.Error(), nil)
 		return
 	}
 
-	// 打开日志文件
-	file, err := os.Open(process.config.LogPath)
-	if err != nil {
-		pm.sendResponse(conn, true, fmt.Sprintf("Log file not found or cannot be read: %v\n", err), nil)
-		return
-	}
-	defer file.Close()
-
-	// 定位到文件末尾
-	fileInfo, err := file.Stat()
-	if err != nil {
-		pm.sendResponse(conn, true, fmt.Sprintf("Failed to stat log file: %v\n", err), nil)
-		return
-	}
-	file.Seek(fileInfo.Size(), 0)
-
-	// 创建文件监听器
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		pm.sendResponse(conn, true, fmt.Sprintf("Failed to create file watcher: %v\n", err), nil)
-		return
-	}
-	defer watcher.Close()
-
-	// 监听日志文件所在目录
-	logDir := filepath.Dir(process.config.LogPath)
-	if err := watcher.Add(logDir); err != nil {
-		pm.sendResponse(conn, true, fmt.Sprintf("Failed to add watch: %v\n", err), nil)
+	// 检查进程是否有 logWriter
+	if proc.logWriter == nil {
+		pm.sendResponse(conn, true, "Process is not running or log writer not available\n", nil)
 		return
 	}
 
-	// 读取初始日志（如果有）
-	buf := make([]byte, 4096)
-	n, err := file.Read(buf)
-	if err != nil && err != io.EOF {
-		fmt.Fprintf(conn, "Error reading log file: %v\n", err)
-	}
-	if n > 0 {
-		if _, err := conn.Write(buf[:n]); err != nil {
-			// 客户端断开连接，停止发送
-			return
-		}
-	}
+	// 注册监听器到 LogWriter
+	listener := proc.logWriter.AddListener()
+	defer proc.logWriter.RemoveListener(listener)
 
-	// 持续监听文件变化
+	// 检测客户端断开
+	disconnected := make(chan error, 1)
+	go func() {
+		buf := make([]byte, 1)
+		_, err := conn.Read(buf) // 任意读操作，客户端断开后返回错误
+		disconnected <- err
+	}()
+
+	// 从 channel 读取日志数据并实时推送给客户端
 	for {
 		select {
-		case event, ok := <-watcher.Events:
+		case data, ok := <-listener:
 			if !ok {
+				// channel 已关闭，进程日志输出结束
 				return
 			}
-			// 只处理写入事件
-			if event.Name == process.config.LogPath && (event.Op&fsnotify.Write == fsnotify.Write) {
-				// 读取新的日志数据
-				buf := make([]byte, 4096)
-				n, err := file.Read(buf)
-				if err != nil && err != io.EOF {
-					fmt.Fprintf(conn, "Error reading log file: %v\n", err)
-				}
-				if n > 0 {
-					if _, err := conn.Write(buf[:n]); err != nil {
-						// 客户端断开连接，停止发送
-						return
-					}
-				}
-			}
-		case err, ok := <-watcher.Errors:
-			if !ok {
+			if _, err := conn.Write(data); err != nil {
+				// 客户端断开连接
 				return
 			}
-			fmt.Fprintf(conn, "Error watching log file: %v\n", err)
+		case <-disconnected:
+			// 客户端断开连接
+			return
 		}
 	}
 }
 
 // handleLogsCommand 处理 logs 命令
 func (pm *ProcessManager) handleLogsCommand(conn net.Conn) {
-	// 打开所有进程的日志文件
-	files := make(map[string]*os.File)
-	logPaths := make(map[string]string)
-	for name, process := range pm.processes {
-		file, err := os.Open(process.config.LogPath)
-		if err != nil {
-			fmt.Fprintf(conn, "=== Logs for process %s ===\n", name)
-			fmt.Fprintf(conn, "Log file not found or cannot be read: %v\n\n", err)
-			continue
-		}
-		files[name] = file
-		logPaths[name] = process.config.LogPath
-		// 定位到文件末尾
-		fileInfo, err := file.Stat()
-		if err == nil {
-			file.Seek(fileInfo.Size(), 0)
+	// 为每个运行中的进程注册监听器
+	type listenerEntry struct {
+		name     string
+		listener chan []byte
+	}
+	var entries []listenerEntry
+
+	for name, proc := range pm.processes {
+		if proc.logWriter != nil {
+			listener := proc.logWriter.AddListener()
+			entries = append(entries, listenerEntry{name: name, listener: listener})
+			defer proc.logWriter.RemoveListener(listener)
 		}
 	}
-	defer func() {
-		for _, file := range files {
-			file.Close()
-		}
-	}()
 
-	// 创建文件监听器
-	watcher, err := fsnotify.NewWatcher()
-	if err != nil {
-		fmt.Fprintf(conn, "Failed to create file watcher: %v\n", err)
+	if len(entries) == 0 {
+		fmt.Fprintf(conn, "No running processes with log output.\n")
 		return
 	}
-	defer watcher.Close()
 
-	// 监听所有日志文件所在目录
-	dirs := make(map[string]bool)
-	for _, logPath := range logPaths {
-		logDir := filepath.Dir(logPath)
-		if !dirs[logDir] {
-			if err := watcher.Add(logDir); err != nil {
-				fmt.Fprintf(conn, "Failed to add watch for directory %s: %v\n", logDir, err)
+	// 合并所有进程的日志 channel，添加进程名前缀
+	merged := make(chan logEntry, 256)
+
+	// 为每个进程的 listener 启动一个 goroutine，添加进程名前缀后发送到合并 channel
+	for _, entry := range entries {
+		go func(name string, ch chan []byte) {
+			for data := range ch {
+				merged <- logEntry{name: name, data: data}
 			}
-			dirs[logDir] = true
-		}
+		}(entry.name, entry.listener)
 	}
 
-	// 持续监听文件变化
+	// 检测客户端断开
+	disconnected := make(chan error, 1)
+	go func() {
+		buf := make([]byte, 1)
+		_, err := conn.Read(buf)
+		disconnected <- err
+	}()
+
+	// 从合并 channel 读取日志并推送
 	for {
 		select {
-		case event, ok := <-watcher.Events:
+		case entry, ok := <-merged:
 			if !ok {
 				return
 			}
-			// 检查是否有进程的日志文件发生变化
-			for name, logPath := range logPaths {
-				if event.Name == logPath && (event.Op&fsnotify.Write == fsnotify.Write) {
-					file := files[name]
-					if file == nil {
-						continue
-					}
-					// 读取新的日志数据
-					buf := make([]byte, 4096)
-					n, err := file.Read(buf)
-					if err != nil && err != io.EOF {
-						fmt.Fprintf(conn, "Error reading log file for process %s: %v\n", name, err)
-						continue
-					}
-					if n > 0 {
-						// 发送新的日志数据
-						if _, err := conn.Write(buf[:n]); err != nil {
-							// 客户端断开连接，停止发送
-							return
-						}
-						fmt.Fprintf(conn, "\n")
-					}
-				}
-			}
-		case err, ok := <-watcher.Errors:
-			if !ok {
+			line := fmt.Sprintf("[%s] %s", entry.name, entry.data)
+			if _, err := conn.Write([]byte(line)); err != nil {
 				return
 			}
-			fmt.Fprintf(conn, "Error watching log files: %v\n", err)
+		case <-disconnected:
+			return
 		}
 	}
+}
+
+// logEntry 日志条目（包含进程名和数据）
+type logEntry struct {
+	name string
+	data []byte
 }
 
 // handleStopCommand 处理 stop 命令
@@ -1266,19 +1223,24 @@ func (pm *ProcessManager) handleReloadCommand(conn net.Conn) {
 // handleStopDaemonCommand 处理 stop-daemon 命令
 func (pm *ProcessManager) handleStopDaemonCommand(conn net.Conn) {
 	// 终止所有管理的进程
-	for name, process := range pm.processes {
-		slog.Info("Stopping process before daemon shutdown", "process", name)
-		if err := process.Stop(); err != nil {
-			slog.Error("Failed to stop process", "process", name, "error", err)
-		} else {
-			slog.Info("Process stopped successfully", "process", name)
-		}
-	}
+	pm.stopAllProcesses()
 
 	// 发送停止信号
 	pm.stopChan <- struct{}{}
 
 	pm.sendResponse(conn, true, "pm daemon stopped", nil)
+}
+
+// stopAllProcesses 停止所有托管进程
+func (pm *ProcessManager) stopAllProcesses() {
+	for name, proc := range pm.processes {
+		slog.Info("Stopping process before daemon shutdown", "process", name)
+		if err := proc.Stop(); err != nil {
+			slog.Error("Failed to stop process", "process", name, "error", err)
+		} else {
+			slog.Info("Process stopped successfully", "process", name)
+		}
+	}
 }
 
 // handleDaemonStatusCommand 处理 daemon-status 命令
@@ -1904,4 +1866,30 @@ func (pm *ProcessManager) loadState() error {
 
 	slog.Debug("State loaded successfully", "path", stateFile)
 	return nil
+}
+
+// isConnectionClosed 判断错误是否为连接已关闭（客户端主动断开）
+func isConnectionClosed(err error) bool {
+	if err == nil {
+		return false
+	}
+	// EOF 表示对方正常关闭了连接
+	if err == io.EOF {
+		return true
+	}
+	// 包装过的 EOF
+	if errors.Is(err, io.EOF) {
+		return true
+	}
+	// 检查底层 syscall 错误
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		var sysErr syscall.Errno
+		if errors.As(opErr.Err, &sysErr) {
+			// ECONNRESET: 连接被对方重置
+			// EOF 在 Unix socket 上也表现为某些 syscall 错误
+			return sysErr == syscall.ECONNRESET
+		}
+	}
+	return false
 }

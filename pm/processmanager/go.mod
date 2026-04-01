@@ -3,7 +3,6 @@ module processmanager
 go 1.24.0
 
 require (
-	github.com/fsnotify/fsnotify v1.9.0
 	github.com/shirou/gopsutil/v4 v4.26.2
 	github.com/takama/daemon v1.0.0
 	github.com/urfave/cli/v2 v2.25.7

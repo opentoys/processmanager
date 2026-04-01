@@ -2,6 +2,7 @@ package manager
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -26,7 +27,9 @@ type Process struct {
 	restarts   int
 	id         string
 	manager    *ProcessManager
-	env        []string // 存储启动时的环境变量
+	env        []string       // 存储启动时的环境变量
+	logWriter  *LogWriter     // 多写日志写入器（文件 + 监听器）
+	logDone    chan struct{}  // 日志 goroutine 退出信号
 }
 
 // NewProcess 创建进程
@@ -69,18 +72,31 @@ func (p *Process) Start() error {
 	p.cmd.Env = env
 	p.env = env // 记录当前环境变量
 
-	// 设置日志文件
+	// 创建日志文件
 	logFile, err := os.OpenFile(p.config.LogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("failed to open log file: %w", err)
 	}
-	defer logFile.Close()
 
-	p.cmd.Stdout = logFile
-	p.cmd.Stderr = logFile
+	// 创建 LogWriter，同时写入文件和广播给监听器
+	p.logWriter = NewLogWriter(logFile)
+	p.logDone = make(chan struct{})
+
+	// 获取 stdout 和 stderr 的管道
+	stdoutPipe, err := p.cmd.StdoutPipe()
+	if err != nil {
+		logFile.Close()
+		return fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+	stderrPipe, err := p.cmd.StderrPipe()
+	if err != nil {
+		logFile.Close()
+		return fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
 
 	// 启动进程
 	if err := p.cmd.Start(); err != nil {
+		logFile.Close()
 		return fmt.Errorf("failed to start process: %w", err)
 	}
 
@@ -95,6 +111,15 @@ func (p *Process) Start() error {
 	if p.manager != nil {
 		go p.manager.saveState()
 	}
+
+	// 异步将 stdout/stderr 通过 io.Copy 写入 LogWriter
+	go func() {
+		io.Copy(p.logWriter, stdoutPipe)
+		io.Copy(p.logWriter, stderrPipe)
+		// stdout/stderr 都关闭后，关闭 logWriter 中的文件
+		p.logWriter.Close()
+		close(p.logDone)
+	}()
 
 	// 监控进程
 	go p.monitor()
