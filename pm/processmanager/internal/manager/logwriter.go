@@ -2,22 +2,44 @@ package manager
 
 import (
 	"io"
-	"os"
 	"sync"
+
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 // LogWriter 实现了 io.Writer 接口
-// 将日志数据同时写入文件和所有注册的监听器 channel
+// 将日志数据同时写入文件（通过 lumberjack 支持轮转压缩）和所有注册的监听器 channel
 type LogWriter struct {
-	file      *os.File
+	lj        *lumberjack.Logger
 	listeners map[chan []byte]struct{}
 	mu        sync.Mutex
 }
 
+// LogWriterConfig LogWriter 配置
+type LogWriterConfig struct {
+	Filename string // 日志文件路径
+	MaxSize  int    // 单个日志文件最大大小（MB），默认 100
+	MaxFiles int    // 保留的旧日志文件最大数量，默认保留所有
+	Compress bool   // 是否压缩旧日志文件
+}
+
 // NewLogWriter 创建一个 LogWriter
-func NewLogWriter(file *os.File) *LogWriter {
+func NewLogWriter(cfg LogWriterConfig) *LogWriter {
+	maxSize := cfg.MaxSize
+	if maxSize <= 0 {
+		maxSize = 100
+	}
+
+	lj := &lumberjack.Logger{
+		Filename:   cfg.Filename,
+		MaxSize:    maxSize,
+		MaxBackups: cfg.MaxFiles,
+		Compress:   cfg.Compress,
+		LocalTime:  true,
+	}
+
 	return &LogWriter{
-		file:      file,
+		lj:        lj,
 		listeners: make(map[chan []byte]struct{}),
 	}
 }
@@ -25,8 +47,8 @@ func NewLogWriter(file *os.File) *LogWriter {
 // Write 实现 io.Writer 接口
 // 数据同时写入文件和所有监听器
 func (w *LogWriter) Write(p []byte) (n int, err error) {
-	// 写入文件
-	n, err = w.file.Write(p)
+	// 写入文件（lumberjack 处理轮转）
+	n, err = w.lj.Write(p)
 	if err != nil {
 		return n, err
 	}
@@ -52,7 +74,7 @@ func (w *LogWriter) Write(p []byte) (n int, err error) {
 func (w *LogWriter) AddListener() chan []byte {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	ch := make(chan []byte, 256) // 带缓冲，避免丢失数据
+	ch := make(chan []byte, 256) // 带缓冲，减少数据丢失
 	w.listeners[ch] = struct{}{}
 	return ch
 }
@@ -65,9 +87,9 @@ func (w *LogWriter) RemoveListener(ch chan []byte) {
 	close(ch)
 }
 
-// Close 关闭日志文件（不关闭监听器，由监听器自行管理生命周期）
+// Close 关闭日志写入器
 func (w *LogWriter) Close() error {
-	return w.file.Close()
+	return w.lj.Close()
 }
 
 // Ensure LogWriter implements io.Writer

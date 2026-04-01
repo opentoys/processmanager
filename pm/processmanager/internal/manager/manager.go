@@ -311,33 +311,6 @@ func (pm *ProcessManager) ShowEnv(c *cli.Context) error {
 	return nil
 }
 
-// ShowLog 显示进程日志
-func (pm *ProcessManager) ShowLog(c *cli.Context) error {
-	nameOrID := c.Args().First()
-	if nameOrID == "" {
-		return fmt.Errorf("process name or ID is required")
-	}
-
-	process, err := pm.GetProcessByNameOrID(nameOrID)
-	if err != nil {
-		return err
-	}
-
-	return pm.logManager.TailLog(process.config.LogPath)
-}
-
-// ShowAllLogs 显示所有进程日志
-func (pm *ProcessManager) ShowAllLogs(c *cli.Context) error {
-	for name, process := range pm.processes {
-		if err := pm.logManager.TailLog(process.config.LogPath); err != nil {
-			fmt.Printf("Failed to show logs for process %s: %v\n", name, err)
-		}
-		fmt.Println()
-	}
-
-	return nil
-}
-
 // StopProcess 停止进程
 func (pm *ProcessManager) StopProcess(c *cli.Context) error {
 	nameOrID := c.Args().First()

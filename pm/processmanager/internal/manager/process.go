@@ -72,31 +72,30 @@ func (p *Process) Start() error {
 	p.cmd.Env = env
 	p.env = env // 记录当前环境变量
 
-	// 创建日志文件
-	logFile, err := os.OpenFile(p.config.LogPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return fmt.Errorf("failed to open log file: %w", err)
-	}
-
-	// 创建 LogWriter，同时写入文件和广播给监听器
-	p.logWriter = NewLogWriter(logFile)
+	// 创建 LogWriter，使用 lumberjack 支持日志轮转压缩
+	p.logWriter = NewLogWriter(LogWriterConfig{
+		Filename: p.config.LogPath,
+		MaxSize:  p.logManager.MaxSize(),
+		MaxFiles: p.logManager.MaxFiles(),
+		Compress: p.logManager.Compress(),
+	})
 	p.logDone = make(chan struct{})
 
 	// 获取 stdout 和 stderr 的管道
 	stdoutPipe, err := p.cmd.StdoutPipe()
 	if err != nil {
-		logFile.Close()
+		p.logWriter.Close()
 		return fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
 	stderrPipe, err := p.cmd.StderrPipe()
 	if err != nil {
-		logFile.Close()
+		p.logWriter.Close()
 		return fmt.Errorf("failed to create stderr pipe: %w", err)
 	}
 
 	// 启动进程
 	if err := p.cmd.Start(); err != nil {
-		logFile.Close()
+		p.logWriter.Close()
 		return fmt.Errorf("failed to start process: %w", err)
 	}
 
