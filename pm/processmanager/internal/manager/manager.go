@@ -1187,6 +1187,20 @@ func (pm *ProcessManager) handleReloadCommand(conn net.Conn) {
 	}
 	pm.logManager.UpdateConfig(pm.config.Log)
 
+	// 刷新所有运行中进程的日志轮转配置
+	logCfg := LogWriterConfig{
+		MaxSize:  pm.logManager.MaxSize(),
+		MaxFiles: pm.logManager.MaxFiles(),
+		Compress: pm.logManager.Compress(),
+	}
+	for name, proc := range pm.processes {
+		if proc.logWriter != nil {
+			proc.logWriter.UpdateConfig(logCfg)
+			slog.Debug("Updated log rotation config for process", "process", name,
+				"maxSize", logCfg.MaxSize, "maxFiles", logCfg.MaxFiles, "compress", logCfg.Compress)
+		}
+	}
+
 	// 保存状态
 	pm.saveState()
 

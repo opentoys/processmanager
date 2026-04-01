@@ -92,5 +92,16 @@ func (w *LogWriter) Close() error {
 	return w.lj.Close()
 }
 
+// UpdateConfig 更新日志轮转配置（热更新，无需重启进程）
+func (w *LogWriter) UpdateConfig(cfg LogWriterConfig) {
+	maxSize := cfg.MaxSize
+	if maxSize <= 0 {
+		maxSize = 100
+	}
+	w.lj.MaxSize = maxSize
+	w.lj.MaxBackups = cfg.MaxFiles
+	w.lj.Compress = cfg.Compress
+}
+
 // Ensure LogWriter implements io.Writer
 var _ io.Writer = (*LogWriter)(nil)
