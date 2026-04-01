@@ -4,23 +4,30 @@ import (
 	"io"
 	"sync"
 
+	"processmanager/internal/notifier"
+
 	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 // LogWriter 实现了 io.Writer 接口
 // 将日志数据同时写入文件（通过 lumberjack 支持轮转压缩）和所有注册的监听器 channel
+// 并通过 Notifier 匹配通知规则发送告警
 type LogWriter struct {
 	lj        *lumberjack.Logger
 	listeners map[chan []byte]struct{}
+	notify    *notifier.Notifier
+	processName string
 	mu        sync.Mutex
 }
 
 // LogWriterConfig LogWriter 配置
 type LogWriterConfig struct {
-	Filename string // 日志文件路径
-	MaxSize  int    // 单个日志文件最大大小（MB），默认 100
-	MaxFiles int    // 保留的旧日志文件最大数量，默认保留所有
-	Compress bool   // 是否压缩旧日志文件
+	Filename    string // 日志文件路径
+	MaxSize     int    // 单个日志文件最大大小（MB），默认 100
+	MaxFiles    int    // 保留的旧日志文件最大数量，默认保留所有
+	Compress    bool   // 是否压缩旧日志文件
+	Notifier    *notifier.Notifier
+	ProcessName string
 }
 
 // NewLogWriter 创建一个 LogWriter
@@ -39,8 +46,10 @@ func NewLogWriter(cfg LogWriterConfig) *LogWriter {
 	}
 
 	return &LogWriter{
-		lj:        lj,
-		listeners: make(map[chan []byte]struct{}),
+		lj:          lj,
+		listeners:   make(map[chan []byte]struct{}),
+		notify:      cfg.Notifier,
+		processName: cfg.ProcessName,
 	}
 }
 
@@ -65,6 +74,11 @@ func (w *LogWriter) Write(p []byte) (n int, err error) {
 		default:
 			// 监听器消费不过来，丢弃数据，避免阻塞子进程
 		}
+	}
+
+	// 通知匹配
+	if w.notify != nil {
+		w.notify.Notify(w.processName, string(p))
 	}
 
 	return n, nil

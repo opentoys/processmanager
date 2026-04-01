@@ -17,6 +17,7 @@ import (
 
 	"processmanager/internal/config"
 	"processmanager/internal/logger"
+	"processmanager/internal/notifier"
 	"processmanager/internal/utils"
 
 	"github.com/shirou/gopsutil/v4/process"
@@ -57,6 +58,7 @@ type ProcessManager struct {
 	pidFile    string        // 存储守护进程 PID 的文件
 	socketPath string        // Unix socket 路径
 	startTime  time.Time     // 守护进程启动时间
+	notifier   *notifier.Notifier
 }
 
 // NewProcessManager 创建进程管理器
@@ -103,6 +105,7 @@ func NewProcessManager(cfg *utils.Config) *ProcessManager {
 		pidFile:    pidFile,
 		socketPath: socketPath,
 		startTime:  time.Now(),
+		notifier:   notifier.NewNotifier(cfg),
 	}
 
 	// 加载进程状态
@@ -879,6 +882,9 @@ func (pm *ProcessManager) handleReloadCommand(conn net.Conn) {
 		return
 	}
 	pm.logManager.UpdateConfig(pm.config.Log)
+
+	// 刷新通知配置
+	pm.notifier.Reload(pm.config)
 
 	// 刷新所有运行中进程的日志轮转配置
 	logCfg := LogWriterConfig{

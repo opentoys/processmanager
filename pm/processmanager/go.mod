@@ -1,8 +1,9 @@
 module processmanager
 
-go 1.24.0
+go 1.25.5
 
 require (
+	github.com/expr-lang/expr v1.17.8
 	github.com/shirou/gopsutil/v4 v4.26.2
 	github.com/takama/daemon v1.0.0
 	github.com/urfave/cli/v2 v2.25.7

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"processmanager/internal/logger"
+	"processmanager/internal/notifier"
 	"processmanager/internal/utils"
 
 	"github.com/shirou/gopsutil/v4/process"
@@ -53,6 +54,14 @@ func (p *Process) SetManager(manager *ProcessManager) {
 	p.manager = manager
 }
 
+// getNotifier 获取通知器（从管理器）
+func (p *Process) getNotifier() *notifier.Notifier {
+	if p.manager != nil {
+		return p.manager.notifier
+	}
+	return nil
+}
+
 // Start 启动进程
 func (p *Process) Start() error {
 	// 构建命令
@@ -73,10 +82,12 @@ func (p *Process) Start() error {
 
 	// 创建 LogWriter，使用 lumberjack 支持日志轮转压缩
 	p.logWriter = NewLogWriter(LogWriterConfig{
-		Filename: p.config.LogPath,
-		MaxSize:  p.logManager.MaxSize(),
-		MaxFiles: p.logManager.MaxFiles(),
-		Compress: p.logManager.Compress(),
+		Filename:    p.config.LogPath,
+		MaxSize:     p.logManager.MaxSize(),
+		MaxFiles:    p.logManager.MaxFiles(),
+		Compress:    p.logManager.Compress(),
+		Notifier:    p.getNotifier(),
+		ProcessName: p.config.Name,
 	})
 
 	// 获取 stdout 和 stderr 的管道
