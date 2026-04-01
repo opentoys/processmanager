@@ -5,18 +5,18 @@ import (
 	"fmt"
 	"net/mail"
 	"net/smtp"
-	"strings"
+	"net/url"
 )
 
 // MailSender SMTP 邮件发送器
 type MailSender struct {
-	to      string
-	from    string
+	to       string
+	from     string
 	smtpHost string
 	smtpPort string
 	username string
 	password string
-	useTLS  bool
+	useTLS   bool
 }
 
 // NewMailSender 创建邮件发送器
@@ -120,37 +120,27 @@ func (m *MailSender) sendPlain(addr string, auth smtp.Auth, from, to, subject, b
 
 // parseSMTPAddr 解析 smtp 地址格式: user:passwd@host:port
 func parseSMTPAddr(addr string) (user, passwd, host, port string, err error) {
-	// 分离 user:passwd 和 host:port
-	atIdx := strings.LastIndex(addr, "@")
-	if atIdx < 0 {
-		return "", "", "", "", fmt.Errorf("invalid smtp addr: missing @, got %s", addr)
+	// 使用 url.Parse 解析，需添加伪协议前缀
+	u, err := url.Parse("http://" + addr)
+	if err != nil {
+		err = fmt.Errorf("invalid smtp addr: %w", err)
+		return
 	}
 
-	userPasswd := addr[:atIdx]
-	hostPort := addr[atIdx+1:]
-
-	// 解析 user:passwd
-	colonIdx := strings.Index(userPasswd, ":")
-	if colonIdx < 0 {
-		user = userPasswd
-	} else {
-		user = userPasswd[:colonIdx]
-		passwd = userPasswd[colonIdx+1:]
-	}
-
-	// 解析 host:port
-	colonIdx = strings.LastIndex(hostPort, ":")
-	if colonIdx < 0 {
-		host = hostPort
-		port = "465"
-	} else {
-		host = hostPort[:colonIdx]
-		port = hostPort[colonIdx+1:]
-	}
-
+	host = u.Hostname()
 	if host == "" {
-		return "", "", "", "", fmt.Errorf("invalid smtp addr: empty host")
+		err = fmt.Errorf("invalid smtp addr: empty host")
+		return
 	}
 
-	return user, passwd, host, port, nil
+	port = u.Port()
+	if port == "" {
+		port = "25" // 默认 SMTP 无 TLS 端口
+	}
+
+	if u.User != nil {
+		user = u.User.Username()
+		passwd, _ = u.User.Password()
+	}
+	return
 }
