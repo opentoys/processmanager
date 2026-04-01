@@ -705,6 +705,508 @@ func main() {
 				},
 			},
 			{
+				Name:  "config",
+				Usage: "Manage configuration",
+				Subcommands: []*cli.Command{
+					{
+						Name:  "show",
+						Usage: "Show current configuration",
+						Action: func(c *cli.Context) error {
+							// 加载配置文件
+							cfgPath := filepath.Join(workspace, utils.PMConfigFile)
+							var cfg utils.Config
+							if err := config.LoadConfig(cfgPath, &cfg); err != nil {
+								return fmt.Errorf("failed to load config: %w", err)
+							}
+
+							// 打印配置文件路径
+							fmt.Printf("Config file: %s\n\n", cfgPath)
+
+							// 格式化输出 JSON
+							data, err := json.MarshalIndent(cfg, "", "  ")
+							if err != nil {
+								return fmt.Errorf("failed to marshal config: %w", err)
+							}
+							fmt.Println(string(data))
+							return nil
+						},
+					},
+					{
+						Name:  "log",
+						Usage: "Configure log settings",
+						Flags: []cli.Flag{
+							&cli.IntFlag{
+								Name:  "size",
+								Usage: "Max size of each log file in MB",
+							},
+							&cli.IntFlag{
+								Name:  "files",
+								Usage: "Max number of log files to keep",
+							},
+							&cli.BoolFlag{
+								Name:  "compress",
+								Usage: "Enable compression for old log files",
+							},
+						},
+						Action: func(c *cli.Context) error {
+							cfgPath := filepath.Join(workspace, utils.PMConfigFile)
+							var cfg utils.Config
+							if err := config.LoadConfig(cfgPath, &cfg); err != nil {
+								return fmt.Errorf("failed to load config: %w", err)
+							}
+
+							updated := false
+							if c.IsSet("size") {
+								cfg.Log.MaxSize = c.Int("size")
+								updated = true
+							}
+							if c.IsSet("files") {
+								cfg.Log.MaxFiles = c.Int("files")
+								updated = true
+							}
+							if c.IsSet("compress") {
+								cfg.Log.Compress = c.Bool("compress")
+								updated = true
+							}
+
+							if !updated {
+								fmt.Printf("Current log config:\n")
+								fmt.Printf("  max_size: %d MB\n", cfg.Log.MaxSize)
+								fmt.Printf("  max_files: %d\n", cfg.Log.MaxFiles)
+								fmt.Printf("  compress: %v\n", cfg.Log.Compress)
+								return nil
+							}
+
+							if err := config.SaveConfig(cfgPath, &cfg); err != nil {
+								return fmt.Errorf("failed to save config: %w", err)
+							}
+
+							fmt.Printf("Log config updated:\n")
+							fmt.Printf("  max_size: %d MB\n", cfg.Log.MaxSize)
+							fmt.Printf("  max_files: %d\n", cfg.Log.MaxFiles)
+							fmt.Printf("  compress: %v\n", cfg.Log.Compress)
+							return nil
+						},
+					},
+					{
+						Name:  "channel",
+						Usage: "Manage notification channels",
+						Subcommands: []*cli.Command{
+							{
+								Name:  "add",
+								Usage: "Add a notification channel",
+								Flags: []cli.Flag{
+									&cli.StringFlag{
+										Name:  "name",
+										Usage: "Channel name",
+									},
+									&cli.StringFlag{
+										Name:  "type",
+										Usage: "Channel type: wecombot or mail",
+									},
+									&cli.StringFlag{
+										Name:  "key",
+										Usage: "Webhook key (for wecombot)",
+									},
+									&cli.StringFlag{
+										Name:  "to",
+										Usage: "Recipient email (for mail)",
+									},
+									&cli.StringFlag{
+										Name:  "from",
+										Usage: "Sender email (for mail)",
+									},
+									&cli.StringFlag{
+										Name:  "smtp",
+										Usage: "SMTP server (user:passwd@host:port)",
+									},
+								},
+								Action: func(c *cli.Context) error {
+									name := c.String("name")
+									if name == "" {
+										return fmt.Errorf("channel name is required")
+									}
+									chType := c.String("type")
+									if chType == "" {
+										return fmt.Errorf("channel type is required")
+									}
+
+									cfgPath := filepath.Join(workspace, utils.PMConfigFile)
+									var cfg utils.Config
+									if err := config.LoadConfig(cfgPath, &cfg); err != nil {
+										return fmt.Errorf("failed to load config: %w", err)
+									}
+
+									if cfg.Channels == nil {
+										cfg.Channels = make(map[string]utils.ChanConfig)
+									}
+
+									if _, exists := cfg.Channels[name]; exists {
+										return fmt.Errorf("channel '%s' already exists", name)
+									}
+
+									ch := utils.ChanConfig{Type: chType}
+									switch chType {
+									case "wecombot":
+										ch.Key = c.String("key")
+										if ch.Key == "" {
+											return fmt.Errorf("key is required for wecombot")
+										}
+									case "mail":
+										ch.To = c.String("to")
+										ch.From = c.String("from")
+										ch.SMTP = c.String("smtp")
+										if ch.To == "" || ch.From == "" || ch.SMTP == "" {
+											return fmt.Errorf("to, from, and smtp are required for mail")
+										}
+									default:
+										return fmt.Errorf("unknown channel type: %s", chType)
+									}
+
+									cfg.Channels[name] = ch
+									if err := config.SaveConfig(cfgPath, &cfg); err != nil {
+										return fmt.Errorf("failed to save config: %w", err)
+									}
+
+									fmt.Printf("Channel '%s' added successfully\n", name)
+									return nil
+								},
+							},
+							{
+								Name:  "remove",
+								Usage: "Remove a notification channel",
+								Flags: []cli.Flag{
+									&cli.StringFlag{
+										Name:  "name",
+										Usage: "Channel name",
+									},
+								},
+								Action: func(c *cli.Context) error {
+									name := c.String("name")
+									if name == "" {
+										return fmt.Errorf("channel name is required")
+									}
+
+									cfgPath := filepath.Join(workspace, utils.PMConfigFile)
+									var cfg utils.Config
+									if err := config.LoadConfig(cfgPath, &cfg); err != nil {
+										return fmt.Errorf("failed to load config: %w", err)
+									}
+
+									if cfg.Channels == nil {
+										return fmt.Errorf("no channels configured")
+									}
+
+									if _, exists := cfg.Channels[name]; !exists {
+										return fmt.Errorf("channel '%s' not found", name)
+									}
+
+									delete(cfg.Channels, name)
+									if err := config.SaveConfig(cfgPath, &cfg); err != nil {
+										return fmt.Errorf("failed to save config: %w", err)
+									}
+
+									fmt.Printf("Channel '%s' removed successfully\n", name)
+									return nil
+								},
+							},
+							{
+								Name:  "edit",
+								Usage: "Edit a notification channel",
+								Flags: []cli.Flag{
+									&cli.StringFlag{
+										Name:  "name",
+										Usage: "Channel name",
+									},
+									&cli.StringFlag{
+										Name:  "key",
+										Usage: "Webhook key (for wecombot)",
+									},
+									&cli.StringFlag{
+										Name:  "to",
+										Usage: "Recipient email (for mail)",
+									},
+									&cli.StringFlag{
+										Name:  "from",
+										Usage: "Sender email (for mail)",
+									},
+									&cli.StringFlag{
+										Name:  "smtp",
+										Usage: "SMTP server (user:passwd@host:port)",
+									},
+								},
+								Action: func(c *cli.Context) error {
+									name := c.String("name")
+									if name == "" {
+										return fmt.Errorf("channel name is required")
+									}
+
+									cfgPath := filepath.Join(workspace, utils.PMConfigFile)
+									var cfg utils.Config
+									if err := config.LoadConfig(cfgPath, &cfg); err != nil {
+										return fmt.Errorf("failed to load config: %w", err)
+									}
+
+									if cfg.Channels == nil {
+										return fmt.Errorf("no channels configured")
+									}
+
+									ch, exists := cfg.Channels[name]
+									if !exists {
+										return fmt.Errorf("channel '%s' not found", name)
+									}
+
+									updated := false
+									if c.IsSet("key") {
+										ch.Key = c.String("key")
+										updated = true
+									}
+									if c.IsSet("to") {
+										ch.To = c.String("to")
+										updated = true
+									}
+									if c.IsSet("from") {
+										ch.From = c.String("from")
+										updated = true
+									}
+									if c.IsSet("smtp") {
+										ch.SMTP = c.String("smtp")
+										updated = true
+									}
+
+									if !updated {
+										return fmt.Errorf("no changes specified")
+									}
+
+									cfg.Channels[name] = ch
+									if err := config.SaveConfig(cfgPath, &cfg); err != nil {
+										return fmt.Errorf("failed to save config: %w", err)
+									}
+
+									fmt.Printf("Channel '%s' updated successfully\n", name)
+									return nil
+								},
+							},
+							{
+								Name:  "list",
+								Usage: "List all notification channels",
+								Action: func(c *cli.Context) error {
+									cfgPath := filepath.Join(workspace, utils.PMConfigFile)
+									var cfg utils.Config
+									if err := config.LoadConfig(cfgPath, &cfg); err != nil {
+										return fmt.Errorf("failed to load config: %w", err)
+									}
+
+									if len(cfg.Channels) == 0 {
+										fmt.Println("No channels configured")
+										return nil
+									}
+
+									fmt.Println("Notification Channels:")
+									fmt.Println("----------------------")
+									for name, ch := range cfg.Channels {
+										fmt.Printf("  Name: %s\n", name)
+										fmt.Printf("  Type: %s\n", ch.Type)
+										switch ch.Type {
+										case "wecombot":
+											fmt.Printf("  Key: %s\n", ch.Key)
+										case "mail":
+											fmt.Printf("  To: %s\n", ch.To)
+											fmt.Printf("  From: %s\n", ch.From)
+											fmt.Printf("  SMTP: %s\n", ch.SMTP)
+										}
+										fmt.Println()
+									}
+									return nil
+								},
+							},
+						},
+					},
+					{
+						Name:  "notice",
+						Usage: "Manage notification rules",
+						Subcommands: []*cli.Command{
+							{
+								Name:  "add",
+								Usage: "Add a notification rule",
+								Flags: []cli.Flag{
+									&cli.StringFlag{
+										Name:  "name",
+										Usage: "Rule name (process name, pid, or * for all)",
+									},
+									&cli.StringFlag{
+										Name:  "expr",
+										Usage: "Expression to match log content",
+									},
+									&cli.StringSliceFlag{
+										Name:  "channel",
+										Usage: "Channel names to notify",
+									},
+								},
+								Action: func(c *cli.Context) error {
+									name := c.String("name")
+									if name == "" {
+										return fmt.Errorf("rule name is required")
+									}
+
+									cfgPath := filepath.Join(workspace, utils.PMConfigFile)
+									var cfg utils.Config
+									if err := config.LoadConfig(cfgPath, &cfg); err != nil {
+										return fmt.Errorf("failed to load config: %w", err)
+									}
+
+									if cfg.Notice == nil {
+										cfg.Notice = make(map[string]utils.NoticeRule)
+									}
+
+									if _, exists := cfg.Notice[name]; exists {
+										return fmt.Errorf("notice rule '%s' already exists", name)
+									}
+
+									rule := utils.NoticeRule{
+										Expr:    c.String("expr"),
+										Channel: c.StringSlice("channel"),
+									}
+
+									cfg.Notice[name] = rule
+									if err := config.SaveConfig(cfgPath, &cfg); err != nil {
+										return fmt.Errorf("failed to save config: %w", err)
+									}
+
+									fmt.Printf("Notice rule '%s' added successfully\n", name)
+									return nil
+								},
+							},
+							{
+								Name:  "remove",
+								Usage: "Remove a notification rule",
+								Flags: []cli.Flag{
+									&cli.StringFlag{
+										Name:  "name",
+										Usage: "Rule name",
+									},
+								},
+								Action: func(c *cli.Context) error {
+									name := c.String("name")
+									if name == "" {
+										return fmt.Errorf("rule name is required")
+									}
+
+									cfgPath := filepath.Join(workspace, utils.PMConfigFile)
+									var cfg utils.Config
+									if err := config.LoadConfig(cfgPath, &cfg); err != nil {
+										return fmt.Errorf("failed to load config: %w", err)
+									}
+
+									if cfg.Notice == nil {
+										return fmt.Errorf("no notice rules configured")
+									}
+
+									if _, exists := cfg.Notice[name]; !exists {
+										return fmt.Errorf("notice rule '%s' not found", name)
+									}
+
+									delete(cfg.Notice, name)
+									if err := config.SaveConfig(cfgPath, &cfg); err != nil {
+										return fmt.Errorf("failed to save config: %w", err)
+									}
+
+									fmt.Printf("Notice rule '%s' removed successfully\n", name)
+									return nil
+								},
+							},
+							{
+								Name:  "edit",
+								Usage: "Edit a notification rule",
+								Flags: []cli.Flag{
+									&cli.StringFlag{
+										Name:  "name",
+										Usage: "Rule name",
+									},
+									&cli.StringFlag{
+										Name:  "expr",
+										Usage: "Expression to match log content",
+									},
+									&cli.StringSliceFlag{
+										Name:  "channel",
+										Usage: "Channel names to notify",
+									},
+								},
+								Action: func(c *cli.Context) error {
+									name := c.String("name")
+									if name == "" {
+										return fmt.Errorf("rule name is required")
+									}
+
+									cfgPath := filepath.Join(workspace, utils.PMConfigFile)
+									var cfg utils.Config
+									if err := config.LoadConfig(cfgPath, &cfg); err != nil {
+										return fmt.Errorf("failed to load config: %w", err)
+									}
+
+									if cfg.Notice == nil {
+										return fmt.Errorf("no notice rules configured")
+									}
+
+									rule, exists := cfg.Notice[name]
+									if !exists {
+										return fmt.Errorf("notice rule '%s' not found", name)
+									}
+
+									updated := false
+									if c.IsSet("expr") {
+										rule.Expr = c.String("expr")
+										updated = true
+									}
+									if c.IsSet("channel") {
+										rule.Channel = c.StringSlice("channel")
+										updated = true
+									}
+
+									if !updated {
+										return fmt.Errorf("no changes specified")
+									}
+
+									cfg.Notice[name] = rule
+									if err := config.SaveConfig(cfgPath, &cfg); err != nil {
+										return fmt.Errorf("failed to save config: %w", err)
+									}
+
+									fmt.Printf("Notice rule '%s' updated successfully\n", name)
+									return nil
+								},
+							},
+							{
+								Name:  "list",
+								Usage: "List all notification rules",
+								Action: func(c *cli.Context) error {
+									cfgPath := filepath.Join(workspace, utils.PMConfigFile)
+									var cfg utils.Config
+									if err := config.LoadConfig(cfgPath, &cfg); err != nil {
+										return fmt.Errorf("failed to load config: %w", err)
+									}
+
+									if len(cfg.Notice) == 0 {
+										fmt.Println("No notice rules configured")
+										return nil
+									}
+
+									fmt.Println("Notification Rules:")
+									fmt.Println("-------------------")
+									for name, rule := range cfg.Notice {
+										fmt.Printf("  Name: %s\n", name)
+										fmt.Printf("  Expr: %s\n", rule.Expr)
+										fmt.Printf("  Channels: %v\n", rule.Channel)
+										fmt.Println()
+									}
+									return nil
+								},
+							},
+						},
+					},
+				},
+			},
+			{
 				Name:   "daemon-run",
 				Hidden: true,
 				Action: func(c *cli.Context) error {
