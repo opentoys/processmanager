@@ -39,3 +39,9 @@ const (
 	PMENV_DAEMON_NAME = "PM_DAEMON_NAME"
 	PMENV_DAEMON_KIND = "PM_DAEMON_KIND"
 )
+
+// 版本信息，通过 -ldflags 在编译时注入
+var (
+	Version   = "dev"
+	GoVersion = "unknown"
+)

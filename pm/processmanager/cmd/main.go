@@ -510,6 +510,15 @@ func main() {
 				},
 			},
 			{
+				Name:    "version",
+				Usage:   "Show version information",
+				Aliases: []string{"v"},
+				Action: func(c *cli.Context) error {
+					fmt.Printf("%s %s\nGo: %s\n", utils.ProcessManagerName, utils.Version, utils.GoVersion)
+					return nil
+				},
+			},
+			{
 				Name:  "daemon",
 				Usage: "Manage pm daemon",
 				Flags: []cli.Flag{
