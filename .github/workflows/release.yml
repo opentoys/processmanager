@@ -25,43 +25,52 @@ jobs:
         with:
           go-version: "1.25.5"
 
-      - name: Build
+      - name: Build on Windows
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
         run: |
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            if [ "${{ matrix.arch }}" = "arm64" ]; then
-              export GOARCH=arm64
-            else
-              export GOARCH=amd64
+          if ("${{ matrix.arch }}" -eq "arm64") {
+            $env:GOARCH = "arm64"
+          } else {
+            $env:GOARCH = "amd64"
+          }
+          go build -trimpath -ldflags="-s -w" -o pm.exe ./cmd
+
+      - name: Build on Unix-like systems
+        if: matrix.os != 'windows-latest'
+        run: |
+          if [ "${{ matrix.arch }}" = "arm64" ]; then
+            export GOARCH=arm64
+            if [ "${{ matrix.target }}" = "android" ]; then
+              export GOOS=android
             fi
-            go build -trimpath -ldflags="-s -w" -o pm.exe ./cmd
           else
-            if [ "${{ matrix.arch }}" = "arm64" ]; then
-              export GOARCH=arm64
-              if [ "${{ matrix.target }}" = "android" ]; then
-                export GOOS=android
-              fi
-            else
-              export GOARCH=amd64
-            fi
-            go build -trimpath -ldflags="-s -w" -o pm ./cmd
+            export GOARCH=amd64
+          fi
+          go build -trimpath -ldflags="-s -w" -o pm ./cmd
+
+      - name: Rename binary on Windows
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $OS = "windows"
+          $ARCH = "${{ matrix.arch }}"
+          Move-Item -Path pm.exe -Destination "pm-${OS}-${ARCH}.exe"
+
+      - name: Rename binary on Unix-like systems
+        if: matrix.os != 'windows-latest'
+        run: |
+          if [ "${{ matrix.target }}" = "android" ]; then
+            ARCH="${{ matrix.arch }}"
+            mv pm pm-android-${ARCH}
+          else
+            OS=$(echo "${{ matrix.os }}" | sed 's/-latest//')
+            ARCH="${{ matrix.arch }}"
+            mv pm pm-${OS}-${ARCH}
           fi
 
-      - name: Rename binary
-        run: |
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            OS="windows"
-            ARCH="${{ matrix.arch }}"
-            mv pm.exe pm-${OS}-${ARCH}.exe
-          else
-            if [ "${{ matrix.target }}" = "android" ]; then
-              ARCH="${{ matrix.arch }}"
-              mv pm pm-android-${ARCH}
-            else
-              OS=$(echo "${{ matrix.os }}" | sed 's/-latest//')
-              ARCH="${{ matrix.arch }}"
-              mv pm pm-${OS}-${ARCH}
-            fi
-          fi
+      - name: List files
+        run: ls -la
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
