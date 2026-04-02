@@ -6,24 +6,7 @@ on:
       - "v*"
 
 jobs:
-  create-release:
-    runs-on: ubuntu-latest
-    outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-    steps:
-      - name: Create release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
-          draft: false
-          prerelease: false
-
   build:
-    needs: create-release
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -42,66 +25,82 @@ jobs:
         with:
           go-version: "1.25.5"
 
-      - name: Build on Windows
-        if: matrix.os == 'windows-latest'
+      - name: Build
         run: |
-          if ("${{ matrix.arch }}" -eq "arm64") {
-            $env:GOARCH = "arm64"
-          } else {
-            $env:GOARCH = "amd64"
-          }
-          go build -trimpath -ldflags="-s -w" -o pm.exe ./cmd
-
-      - name: Build on Unix-like systems
-        if: matrix.os != 'windows-latest'
-        run: |
-          if [ "${{ matrix.arch }}" = "arm64" ]; then
-            if [ "${{ matrix.target }}" = "android" ]; then
-              export GOOS=android
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            if [ "${{ matrix.arch }}" = "arm64" ]; then
+              export GOARCH=arm64
+            else
+              export GOARCH=amd64
             fi
-            export GOARCH=arm64
+            go build -trimpath -ldflags="-s -w" -o pm.exe ./cmd
           else
-            export GOARCH=amd64
-          fi
-          make build
-
-      - name: Rename binary for release on Windows
-        if: matrix.os == 'windows-latest'
-        run: |
-          $OS = "windows"
-          $ARCH = "${{ matrix.arch }}"
-          Move-Item -Path pm.exe -Destination "pm-${OS}-${ARCH}.exe"
-
-      - name: Rename binary for release on Unix-like systems
-        if: matrix.os != 'windows-latest'
-        run: |
-          OS=$(echo "${{ matrix.os }}" | sed 's/-latest//')
-          ARCH=${{ matrix.arch }}
-          TARGET=${{ matrix.target }}
-          if [ "$TARGET" = "android" ]; then
-            mv pm pm-android-${ARCH}
-          else
-            mv pm pm-${OS}-${ARCH}
+            if [ "${{ matrix.arch }}" = "arm64" ]; then
+              export GOARCH=arm64
+              if [ "${{ matrix.target }}" = "android" ]; then
+                export GOOS=android
+              fi
+            else
+              export GOARCH=amd64
+            fi
+            go build -trimpath -ldflags="-s -w" -o pm ./cmd
           fi
 
-      - name: Upload release asset
-        uses: actions/upload-release-asset@v1
+      - name: Rename binary
+        run: |
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            OS="windows"
+            ARCH="${{ matrix.arch }}"
+            mv pm.exe pm-${OS}-${ARCH}.exe
+          else
+            if [ "${{ matrix.target }}" = "android" ]; then
+              ARCH="${{ matrix.arch }}"
+              mv pm pm-android-${ARCH}
+            else
+              OS=$(echo "${{ matrix.os }}" | sed 's/-latest//')
+              ARCH="${{ matrix.arch }}"
+              mv pm pm-${OS}-${ARCH}
+            fi
+          fi
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pm-${{ matrix.os }}-${{ matrix.arch }}
+          path: |
+            pm-*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Create release
+        id: create_release
+        uses: actions/create-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ${{ 
-            matrix.os == 'windows-latest' 
-              ? format('./pm-windows-{0}.exe', matrix.arch) 
-              : matrix.target == 'android' 
-                ? format('./pm-android-{0}', matrix.arch) 
-                : format('./pm-{0}-{1}', replace(matrix.os, '-latest', ''), matrix.arch) 
-          }}
-          asset_name: ${{ 
-            matrix.os == 'windows-latest' 
-              ? format('pm-windows-{0}.exe', matrix.arch) 
-              : matrix.target == 'android' 
-                ? format('pm-android-{0}', matrix.arch) 
-                : format('pm-{0}-{1}', replace(matrix.os, '-latest', ''), matrix.arch) 
-          }}
-          asset_content_type: application/octet-stream
+          tag_name: ${{ github.ref }}
+          release_name: Release ${{ github.ref }}
+          draft: false
+          prerelease: false
+
+      - name: Upload release assets
+        run: |
+          find artifacts -type f -name "pm-*" | while read -r file; do
+            filename=$(basename "$file")
+            echo "Uploading $file as $filename"
+            curl -X POST "${{ steps.create_release.outputs.upload_url }}" \
+              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+              -H "Content-Type: application/octet-stream" \
+              -F "name=$filename" \
+              -F "file=@$file"
+          done
