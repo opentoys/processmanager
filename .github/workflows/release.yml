@@ -10,7 +10,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        os: [ubuntu-latest, macos-latest]
         arch: [amd64, arm64]
         include:
           - os: ubuntu-latest
@@ -25,19 +25,7 @@ jobs:
         with:
           go-version: "1.25.5"
 
-      - name: Build on Windows
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          if ("${{ matrix.arch }}" -eq "arm64") {
-            $env:GOARCH = "arm64"
-          } else {
-            $env:GOARCH = "amd64"
-          }
-          go build -trimpath -ldflags="-s -w" -o pm.exe ./cmd
-
-      - name: Build on Unix-like systems
-        if: matrix.os != 'windows-latest'
+      - name: Build
         run: |
           if [ "${{ matrix.arch }}" = "arm64" ]; then
             export GOARCH=arm64
@@ -49,16 +37,7 @@ jobs:
           fi
           go build -trimpath -ldflags="-s -w" -o pm ./cmd
 
-      - name: Rename binary on Windows
-        if: matrix.os == 'windows-latest'
-        shell: pwsh
-        run: |
-          $OS = "windows"
-          $ARCH = "${{ matrix.arch }}"
-          Move-Item -Path pm.exe -Destination "pm-${OS}-${ARCH}.exe"
-
-      - name: Rename binary on Unix-like systems
-        if: matrix.os != 'windows-latest'
+      - name: Rename binary
         run: |
           if [ "${{ matrix.target }}" = "android" ]; then
             ARCH="${{ matrix.arch }}"
