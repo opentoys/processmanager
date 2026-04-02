@@ -25,6 +25,13 @@ jobs:
           - os: macos-latest
             arch: arm64
             target: macos
+          # Windows builds
+          - os: windows-latest
+            arch: amd64
+            target: windows
+          - os: windows-latest
+            arch: arm64
+            target: windows
           # Android build
           - os: ubuntu-latest
             arch: arm64
@@ -38,7 +45,35 @@ jobs:
         with:
           go-version: "1.25.5"
 
-      - name: Build
+      - name: Build on Windows
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $env:GOARCH = "${{ matrix.arch }}"
+          $env:GOOS = "windows"
+
+          # Get git tag
+          $gitTag = git describe --tags --abbrev=0 2>$null
+          if (-not $gitTag) {
+            $gitTag = "v0.0.0"
+          }
+
+          # Get current version (date and time)
+          $version = Get-Date -Format "yyyy.MM.dd-HHmm"
+
+          # Get Go version
+          $goVersion = go version | Select-String -Pattern "go\d+\.\d+\.\d+" | ForEach-Object { $_.Matches.Value }
+
+          # Build full version string
+          $fullVersion = "$gitTag($version)"
+
+          # Build ldflags
+          $ldflags = "-s -w -X processmanager/internal/utils.Version=$fullVersion -X processmanager/internal/utils.GoVersion=$goVersion"
+
+          go build -trimpath -ldflags="$ldflags" -o pm.exe ./cmd
+
+      - name: Build on Unix-like systems
+        if: matrix.os != 'windows-latest'
         run: |
           export GOARCH=${{ matrix.arch }}
           if [ "${{ matrix.target }}" = "android" ]; then
@@ -50,7 +85,16 @@ jobs:
           fi
           make build
 
-      - name: Rename binary
+      - name: Rename binary on Windows
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $TARGET = "${{ matrix.target }}"
+          $ARCH = "${{ matrix.arch }}"
+          Move-Item -Path pm.exe -Destination "pm-${TARGET}-${ARCH}.exe"
+
+      - name: Rename binary on Unix-like systems
+        if: matrix.os != 'windows-latest'
         run: |
           TARGET="${{ matrix.target }}"
           ARCH="${{ matrix.arch }}"
@@ -65,6 +109,7 @@ jobs:
           name: pm-${{ matrix.target }}-${{ matrix.arch }}
           path: |
             pm-*
+            pm-*.exe
 
   release:
     needs: build
