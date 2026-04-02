@@ -48,7 +48,7 @@ jobs:
           elif [ "${{ matrix.target }}" = "macos" ]; then
             export GOOS=darwin
           fi
-          go build -trimpath -ldflags="-s -w" -o pm ./cmd
+          make build
 
       - name: Rename binary
         run: |
@@ -62,7 +62,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: pm-${{ matrix.os }}-${{ matrix.arch }}
+          name: pm-${{ matrix.target }}-${{ matrix.arch }}
           path: |
             pm-*
 
