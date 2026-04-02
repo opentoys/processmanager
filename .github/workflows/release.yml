@@ -10,15 +10,25 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
-        arch: [amd64, arm64]
         include:
+          # Linux builds
           - os: ubuntu-latest
-            arch: arm64
-            target: android
+            arch: amd64
+            target: linux
           - os: ubuntu-latest
             arch: arm64
             target: linux
+          # macOS builds
+          - os: macos-latest
+            arch: amd64
+            target: macos
+          - os: macos-latest
+            arch: arm64
+            target: macos
+          # Android build
+          - os: ubuntu-latest
+            arch: arm64
+            target: android
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -30,34 +40,21 @@ jobs:
 
       - name: Build
         run: |
-          if [ "${{ matrix.arch }}" = "arm64" ]; then
-            export GOARCH=arm64
-            if [ "${{ matrix.target }}" = "android" ]; then
-              export GOOS=android
-            elif [ "${{ matrix.target }}" = "linux" ]; then
-              export GOOS=linux
-            fi
-          else
-            export GOARCH=amd64
+          export GOARCH=${{ matrix.arch }}
+          if [ "${{ matrix.target }}" = "android" ]; then
+            export GOOS=android
+          elif [ "${{ matrix.target }}" = "linux" ]; then
+            export GOOS=linux
+          elif [ "${{ matrix.target }}" = "macos" ]; then
+            export GOOS=darwin
           fi
           go build -trimpath -ldflags="-s -w" -o pm ./cmd
 
       - name: Rename binary
         run: |
-          if [ "${{ matrix.target }}" = "android" ]; then
-            ARCH="${{ matrix.arch }}"
-            mv pm pm-android-${ARCH}
-          elif [ "${{ matrix.target }}" = "linux" ]; then
-            ARCH="${{ matrix.arch }}"
-            mv pm pm-linux-${ARCH}
-          else
-            OS=$(echo "${{ matrix.os }}" | sed 's/-latest//')
-            if [ "$OS" = "ubuntu" ]; then
-              OS="linux"
-            fi
-            ARCH="${{ matrix.arch }}"
-            mv pm pm-${OS}-${ARCH}
-          fi
+          TARGET="${{ matrix.target }}"
+          ARCH="${{ matrix.arch }}"
+          mv pm pm-${TARGET}-${ARCH}
 
       - name: List files
         run: ls -la
@@ -95,7 +92,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ github.ref }}
-          name: Release ${{ github.ref }}
+          name: Release ${{ github.ref_name }}
           draft: false
           prerelease: false
           files: |
