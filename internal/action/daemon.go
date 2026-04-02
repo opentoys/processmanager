@@ -3,9 +3,7 @@ package action
 import (
 	"errors"
 	"fmt"
-	"os"
-
-	"processmanager/internal/utils"
+	"runtime"
 
 	"github.com/takama/daemon"
 	"github.com/urfave/cli/v2"
@@ -13,12 +11,10 @@ import (
 
 // GetDaemonKind 获取守护进程类型
 func GetDaemonKind(c *cli.Context) daemon.Kind {
-	kindStr := os.Getenv(utils.PMENV_DAEMON_KIND)
-	if k := c.String("kind"); k != "" {
-		kindStr = k
+	if runtime.GOOS != "darwin" {
+		return daemon.SystemDaemon
 	}
-
-	switch kindStr {
+	switch c.String("kind") {
 	case "GlobalAgent":
 		return daemon.GlobalAgent
 	case "GlobalDaemon":
@@ -32,14 +28,7 @@ func GetDaemonKind(c *cli.Context) daemon.Kind {
 
 // GetDaemonName 获取守护进程名称
 func GetDaemonName(c *cli.Context) string {
-	name := os.Getenv(utils.PMENV_DAEMON_NAME)
-	if k := c.String("name"); k != "" {
-		name = k
-	}
-	if name == "" {
-		name = "pm"
-	}
-	return name
+	return "com.github.opentoys.pm"
 }
 
 // GetDaemonService 获取守护进程服务
