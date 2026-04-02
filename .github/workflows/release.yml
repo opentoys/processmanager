@@ -70,25 +70,22 @@ jobs:
         with:
           path: artifacts
 
+      - name: List downloaded artifacts
+        run: |
+          echo "Listing artifacts directory:"
+          ls -la artifacts/
+          echo "Listing all files:"
+          find artifacts -type f
+
       - name: Create release
         id: create_release
-        uses: actions/create-release@v1
+        uses: softprops/action-gh-release@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           tag_name: ${{ github.ref }}
-          release_name: Release ${{ github.ref }}
+          name: Release ${{ github.ref }}
           draft: false
           prerelease: false
-
-      - name: Upload release assets
-        run: |
-          find artifacts -type f -name "pm-*" | while read -r file; do
-            filename=$(basename "$file")
-            echo "Uploading $file as $filename"
-            curl -X POST "${{ steps.create_release.outputs.upload_url }}" \
-              -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
-              -H "Content-Type: application/octet-stream" \
-              -F "name=$filename" \
-              -F "file=@$file"
-          done
+          files: |
+            artifacts/**/pm-*
