@@ -16,6 +16,9 @@ jobs:
           - os: ubuntu-latest
             arch: arm64
             target: android
+          - os: ubuntu-latest
+            arch: arm64
+            target: linux
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -31,6 +34,8 @@ jobs:
             export GOARCH=arm64
             if [ "${{ matrix.target }}" = "android" ]; then
               export GOOS=android
+            elif [ "${{ matrix.target }}" = "linux" ]; then
+              export GOOS=linux
             fi
           else
             export GOARCH=amd64
@@ -42,8 +47,14 @@ jobs:
           if [ "${{ matrix.target }}" = "android" ]; then
             ARCH="${{ matrix.arch }}"
             mv pm pm-android-${ARCH}
+          elif [ "${{ matrix.target }}" = "linux" ]; then
+            ARCH="${{ matrix.arch }}"
+            mv pm pm-linux-${ARCH}
           else
             OS=$(echo "${{ matrix.os }}" | sed 's/-latest//')
+            if [ "$OS" = "ubuntu" ]; then
+              OS="linux"
+            fi
             ARCH="${{ matrix.arch }}"
             mv pm pm-${OS}-${ARCH}
           fi
