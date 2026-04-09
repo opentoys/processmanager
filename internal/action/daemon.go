@@ -3,6 +3,7 @@ package action
 import (
 	"errors"
 	"fmt"
+	"processmanager/internal/utils"
 	"runtime"
 
 	"github.com/takama/daemon"
@@ -48,7 +49,7 @@ func DaemonStartAction(c *cli.Context) error {
 		return fmt.Errorf("failed to start daemon: %w", err)
 	}
 
-	fmt.Printf("pm daemon started: %v\n", status)
+	fmt.Printf(utils.ProcessManagerName+" daemon started: %v\n", status)
 	return nil
 }
 
@@ -64,7 +65,7 @@ func DaemonStopAction(c *cli.Context) error {
 		return fmt.Errorf("failed to stop daemon: %w", err)
 	}
 
-	fmt.Printf("pm daemon stopped: %v\n", status)
+	fmt.Printf(utils.ProcessManagerName+" daemon stopped: %v\n", status)
 	return nil
 }
 
@@ -83,7 +84,7 @@ func DaemonStatusAction(c *cli.Context) error {
 	fmt.Printf("System service status: %v\n", systemStatus)
 
 	if !IsDaemonRunning() {
-		fmt.Println("pm daemon is not running")
+		fmt.Println(utils.ProcessManagerName + " daemon is not running")
 		return nil
 	}
 
@@ -112,7 +113,7 @@ func DaemonInstallAction(c *cli.Context) error {
 		return fmt.Errorf("failed to install daemon: %w", err)
 	}
 
-	fmt.Printf("pm daemon installed: %v\n", status)
+	fmt.Printf(utils.ProcessManagerName+" daemon installed: %v\n", status)
 	return nil
 }
 
@@ -128,7 +129,7 @@ func DaemonRemoveAction(c *cli.Context) error {
 		return fmt.Errorf("failed to remove daemon: %w", err)
 	}
 
-	fmt.Printf("pm daemon removed: %v\n", status)
+	fmt.Printf(utils.ProcessManagerName+" daemon removed: %v\n", status)
 	return nil
 }
 
@@ -137,27 +138,27 @@ func GetDaemonCommands() []*cli.Command {
 	return []*cli.Command{
 		{
 			Name:   "start",
-			Usage:  "Start pm system service",
+			Usage:  "Start " + utils.ProcessManagerName + " system service",
 			Action: DaemonStartAction,
 		},
 		{
 			Name:   "stop",
-			Usage:  "Stop pm system service",
+			Usage:  "Stop " + utils.ProcessManagerName + " system service",
 			Action: DaemonStopAction,
 		},
 		{
 			Name:   "status",
-			Usage:  "Show pm daemon status",
+			Usage:  "Show " + utils.ProcessManagerName + " daemon status",
 			Action: DaemonStatusAction,
 		},
 		{
 			Name:   "install",
-			Usage:  "Install pm as a system service",
+			Usage:  "Install " + utils.ProcessManagerName + " as a system service",
 			Action: DaemonInstallAction,
 		},
 		{
 			Name:   "remove",
-			Usage:  "Remove pm system service",
+			Usage:  "Remove " + utils.ProcessManagerName + " system service",
 			Action: DaemonRemoveAction,
 		},
 	}

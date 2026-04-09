@@ -16,7 +16,7 @@ const (
 	Minute = 60
 )
 
-const (
+var (
 	ProcessManagerName = "pm"
 )
 

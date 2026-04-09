@@ -153,7 +153,7 @@ func (pm *ProcessManager) IsRunning() bool {
 func (pm *ProcessManager) StartDaemon() error {
 	// 检查是否已经在运行
 	if pm.IsRunning() {
-		return fmt.Errorf("pm daemon is already running")
+		return fmt.Errorf(utils.ProcessManagerName + "daemon is already running")
 	}
 
 	// 检查是否存在 pm.save 文件
@@ -232,7 +232,7 @@ func (pm *ProcessManager) StartDaemon() error {
 
 	// 设置运行状态
 	pm.running = true
-	slog.Info("pm daemon started", "pid", pid, "socket", pm.socketPath)
+	slog.Info(utils.ProcessManagerName+"daemon started", "pid", pid, "socket", pm.socketPath)
 
 	// 监听系统信号，优雅关闭
 	sigChan := make(chan os.Signal, 1)
@@ -251,7 +251,7 @@ func (pm *ProcessManager) StartDaemon() error {
 	for {
 		select {
 		case <-pm.stopChan:
-			slog.Info("pm daemon stopping")
+			slog.Info(utils.ProcessManagerName + "daemon stopping")
 			pm.running = false
 			// 删除 PID 文件
 			os.Remove(pm.pidFile)
@@ -914,7 +914,7 @@ func (pm *ProcessManager) handleStopDaemonCommand(conn net.Conn) {
 	// 发送停止信号
 	pm.stopChan <- struct{}{}
 
-	pm.sendResponse(conn, true, "pm daemon stopped", nil)
+	pm.sendResponse(conn, true, utils.ProcessManagerName+"daemon stopped", nil)
 }
 
 // stopAllProcesses 停止所有托管进程
@@ -949,7 +949,7 @@ func (pm *ProcessManager) handleDaemonStatusCommand(conn net.Conn) {
 
 	// 构建状态信息
 	var output strings.Builder
-	output.WriteString("pm daemon status:\n")
+	output.WriteString(utils.ProcessManagerName + " daemon status:\n")
 	output.WriteString(fmt.Sprintf("PID: %d\n", pid))
 	output.WriteString("Status: running\n")
 	output.WriteString(fmt.Sprintf("CPU: %.2f%%\n", cpuPercent))

@@ -15,6 +15,8 @@ import (
 )
 
 func main() {
+	utils.ProcessManagerName = filepath.Base(os.Args[0])
+
 	// 获取工作目录
 	action.Workspace = utils.GetWorkspacePath()
 
@@ -62,15 +64,15 @@ func main() {
 			action.GetProcessCommands(),
 			&cli.Command{
 				Name:  "daemon",
-				Usage: "Manage pm daemon",
+				Usage: "Manage " + utils.ProcessManagerName + " daemon",
 				Flags: []cli.Flag{
 					&cli.StringFlag{
 						Name:  "kind",
-						Usage: "Daemon kind: UserAgent, GlobalAgent, GlobalDaemon, SystemDaemon.  eq PM_DAEMON_KIND (default: UserAgent)",
+						Usage: "Daemon kind: UserAgent, GlobalAgent, GlobalDaemon, SystemDaemon. only support MacOS. eq PM_DAEMON_KIND (default: UserAgent)",
 					},
 					&cli.StringFlag{
 						Name:  "name",
-						Usage: "Daemon name. eq PM_DAEMON_NAME (default: pm)",
+						Usage: "Daemon name. eq PM_DAEMON_NAME (default: " + utils.ProcessManagerName + ")",
 					},
 				},
 				Subcommands: action.GetDaemonCommands(),
