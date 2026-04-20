@@ -1,6 +1,7 @@
 package action
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"path/filepath"
@@ -8,11 +9,11 @@ import (
 	"processmanager/internal/config"
 	"processmanager/internal/utils"
 
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
 // ConfigShowAction config show 命令的 Action
-func ConfigShowAction(c *cli.Context) error {
+func ConfigShowAction(ctx context.Context, cmd *cli.Command) error {
 	cfgPath := filepath.Join(Workspace, utils.PMConfigFile)
 	var cfg utils.Config
 	if err := config.LoadConfig(cfgPath, &cfg); err != nil {
@@ -30,7 +31,7 @@ func ConfigShowAction(c *cli.Context) error {
 }
 
 // ConfigLogAction config log 命令的 Action
-func ConfigLogAction(c *cli.Context) error {
+func ConfigLogAction(ctx context.Context, cmd *cli.Command) error {
 	cfgPath := filepath.Join(Workspace, utils.PMConfigFile)
 	var cfg utils.Config
 	if err := config.LoadConfig(cfgPath, &cfg); err != nil {
@@ -38,16 +39,16 @@ func ConfigLogAction(c *cli.Context) error {
 	}
 
 	updated := false
-	if c.IsSet("size") {
-		cfg.Log.MaxSize = c.Int("size")
+	if cmd.IsSet("size") {
+		cfg.Log.MaxSize = cmd.Int("size")
 		updated = true
 	}
-	if c.IsSet("files") {
-		cfg.Log.MaxFiles = c.Int("files")
+	if cmd.IsSet("files") {
+		cfg.Log.MaxFiles = cmd.Int("files")
 		updated = true
 	}
-	if c.IsSet("compress") {
-		cfg.Log.Compress = c.Bool("compress")
+	if cmd.IsSet("compress") {
+		cfg.Log.Compress = cmd.Bool("compress")
 		updated = true
 	}
 

@@ -1,7 +1,7 @@
 package action
 
 import (
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
 // GetConfigCommands 返回配置管理相关命令
@@ -10,14 +10,14 @@ func GetConfigCommands() []*cli.Command {
 		GetConfigShowCommand(),
 		GetConfigLogCommand(),
 		{
-			Name:        "channel",
-			Usage:       "Manage notification channels",
-			Subcommands: GetConfigChannelCommands(),
+			Name:     "channel",
+			Usage:    "Manage notification channels",
+			Commands: GetConfigChannelCommands(),
 		},
 		{
-			Name:        "notice",
-			Usage:       "Manage notification rules",
-			Subcommands: GetConfigNoticeCommands(),
+			Name:     "notice",
+			Usage:    "Manage notification rules",
+			Commands: GetConfigNoticeCommands(),
 		},
 	}
 }

@@ -1,21 +1,22 @@
 package action
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"processmanager/internal/utils"
 	"runtime"
 
 	"github.com/takama/daemon"
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
 // GetDaemonKind 获取守护进程类型
-func GetDaemonKind(c *cli.Context) daemon.Kind {
+func GetDaemonKind(cmd *cli.Command) daemon.Kind {
 	if runtime.GOOS != "darwin" {
 		return daemon.SystemDaemon
 	}
-	switch c.String("kind") {
+	switch cmd.String("kind") {
 	case "GlobalAgent":
 		return daemon.GlobalAgent
 	case "GlobalDaemon":
@@ -28,18 +29,18 @@ func GetDaemonKind(c *cli.Context) daemon.Kind {
 }
 
 // GetDaemonName 获取守护进程名称
-func GetDaemonName(c *cli.Context) string {
+func GetDaemonName(cmd *cli.Command) string {
 	return "com.github.opentoys.pm"
 }
 
 // GetDaemonService 获取守护进程服务
-func GetDaemonService(c *cli.Context) (daemon.Daemon, error) {
-	return daemon.New(GetDaemonName(c), "Process manager daemon", GetDaemonKind(c))
+func GetDaemonService(cmd *cli.Command) (daemon.Daemon, error) {
+	return daemon.New(GetDaemonName(cmd), "Process manager daemon", GetDaemonKind(cmd))
 }
 
 // DaemonStartAction daemon start 命令的 Action
-func DaemonStartAction(c *cli.Context) error {
-	service, err := GetDaemonService(c)
+func DaemonStartAction(ctx context.Context, cmd *cli.Command) error {
+	service, err := GetDaemonService(cmd)
 	if err != nil {
 		return fmt.Errorf("failed to create daemon: %w", err)
 	}
@@ -54,8 +55,8 @@ func DaemonStartAction(c *cli.Context) error {
 }
 
 // DaemonStopAction daemon stop 命令的 Action
-func DaemonStopAction(c *cli.Context) error {
-	service, err := GetDaemonService(c)
+func DaemonStopAction(ctx context.Context, cmd *cli.Command) error {
+	service, err := GetDaemonService(cmd)
 	if err != nil {
 		return fmt.Errorf("failed to create daemon: %w", err)
 	}
@@ -70,8 +71,8 @@ func DaemonStopAction(c *cli.Context) error {
 }
 
 // DaemonStatusAction daemon status 命令的 Action
-func DaemonStatusAction(c *cli.Context) error {
-	service, err := GetDaemonService(c)
+func DaemonStatusAction(ctx context.Context, cmd *cli.Command) error {
+	service, err := GetDaemonService(cmd)
 	if err != nil {
 		return fmt.Errorf("failed to create daemon: %w", err)
 	}
@@ -102,8 +103,8 @@ func DaemonStatusAction(c *cli.Context) error {
 }
 
 // DaemonInstallAction daemon install 命令的 Action
-func DaemonInstallAction(c *cli.Context) error {
-	service, err := GetDaemonService(c)
+func DaemonInstallAction(ctx context.Context, cmd *cli.Command) error {
+	service, err := GetDaemonService(cmd)
 	if err != nil {
 		return fmt.Errorf("failed to create daemon: %w", err)
 	}
@@ -118,8 +119,8 @@ func DaemonInstallAction(c *cli.Context) error {
 }
 
 // DaemonRemoveAction daemon remove 命令的 Action
-func DaemonRemoveAction(c *cli.Context) error {
-	service, err := GetDaemonService(c)
+func DaemonRemoveAction(ctx context.Context, cmd *cli.Command) error {
+	service, err := GetDaemonService(cmd)
 	if err != nil {
 		return fmt.Errorf("failed to create daemon: %w", err)
 	}

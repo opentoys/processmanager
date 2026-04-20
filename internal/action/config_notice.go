@@ -1,18 +1,19 @@
 package action
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 
 	"processmanager/internal/config"
 	"processmanager/internal/utils"
 
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
 // ConfigNoticeAddAction config notice add 命令的 Action
-func ConfigNoticeAddAction(c *cli.Context) error {
-	name := c.String("name")
+func ConfigNoticeAddAction(ctx context.Context, cmd *cli.Command) error {
+	name := cmd.String("name")
 	if name == "" {
 		return fmt.Errorf("rule name is required")
 	}
@@ -32,8 +33,8 @@ func ConfigNoticeAddAction(c *cli.Context) error {
 	}
 
 	rule := utils.NoticeRule{
-		Expr:    c.String("expr"),
-		Channel: c.StringSlice("channel"),
+		Expr:    cmd.String("expr"),
+		Channel: cmd.StringSlice("channel"),
 	}
 
 	cfg.Notice[name] = rule
@@ -46,8 +47,8 @@ func ConfigNoticeAddAction(c *cli.Context) error {
 }
 
 // ConfigNoticeRemoveAction config notice remove 命令的 Action
-func ConfigNoticeRemoveAction(c *cli.Context) error {
-	name := c.String("name")
+func ConfigNoticeRemoveAction(ctx context.Context, cmd *cli.Command) error {
+	name := cmd.String("name")
 	if name == "" {
 		return fmt.Errorf("rule name is required")
 	}
@@ -76,8 +77,8 @@ func ConfigNoticeRemoveAction(c *cli.Context) error {
 }
 
 // ConfigNoticeEditAction config notice edit 命令的 Action
-func ConfigNoticeEditAction(c *cli.Context) error {
-	name := c.String("name")
+func ConfigNoticeEditAction(ctx context.Context, cmd *cli.Command) error {
+	name := cmd.String("name")
 	if name == "" {
 		return fmt.Errorf("rule name is required")
 	}
@@ -98,12 +99,12 @@ func ConfigNoticeEditAction(c *cli.Context) error {
 	}
 
 	updated := false
-	if c.IsSet("expr") {
-		rule.Expr = c.String("expr")
+	if cmd.IsSet("expr") {
+		rule.Expr = cmd.String("expr")
 		updated = true
 	}
-	if c.IsSet("channel") {
-		rule.Channel = c.StringSlice("channel")
+	if cmd.IsSet("channel") {
+		rule.Channel = cmd.StringSlice("channel")
 		updated = true
 	}
 
@@ -121,7 +122,7 @@ func ConfigNoticeEditAction(c *cli.Context) error {
 }
 
 // ConfigNoticeListAction config notice list 命令的 Action
-func ConfigNoticeListAction(c *cli.Context) error {
+func ConfigNoticeListAction(ctx context.Context, cmd *cli.Command) error {
 	cfgPath := filepath.Join(Workspace, utils.PMConfigFile)
 	var cfg utils.Config
 	if err := config.LoadConfig(cfgPath, &cfg); err != nil {

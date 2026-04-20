@@ -1,22 +1,23 @@
 package action
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 
 	"processmanager/internal/config"
 	"processmanager/internal/utils"
 
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
 // ConfigChannelAddAction config channel add 命令的 Action
-func ConfigChannelAddAction(c *cli.Context) error {
-	name := c.String("name")
+func ConfigChannelAddAction(ctx context.Context, cmd *cli.Command) error {
+	name := cmd.String("name")
 	if name == "" {
 		return fmt.Errorf("channel name is required")
 	}
-	chType := c.String("type")
+	chType := cmd.String("type")
 	if chType == "" {
 		return fmt.Errorf("channel type is required")
 	}
@@ -38,14 +39,14 @@ func ConfigChannelAddAction(c *cli.Context) error {
 	ch := utils.ChanConfig{Type: chType}
 	switch chType {
 	case "wecombot":
-		ch.Key = c.String("key")
+		ch.Key = cmd.String("key")
 		if ch.Key == "" {
 			return fmt.Errorf("key is required for wecombot")
 		}
 	case "mail":
-		ch.To = c.String("to")
-		ch.From = c.String("from")
-		ch.SMTP = c.String("smtp")
+		ch.To = cmd.String("to")
+		ch.From = cmd.String("from")
+		ch.SMTP = cmd.String("smtp")
 		if ch.To == "" || ch.From == "" || ch.SMTP == "" {
 			return fmt.Errorf("to, from, and smtp are required for mail")
 		}
@@ -63,8 +64,8 @@ func ConfigChannelAddAction(c *cli.Context) error {
 }
 
 // ConfigChannelRemoveAction config channel remove 命令的 Action
-func ConfigChannelRemoveAction(c *cli.Context) error {
-	name := c.String("name")
+func ConfigChannelRemoveAction(ctx context.Context, cmd *cli.Command) error {
+	name := cmd.String("name")
 	if name == "" {
 		return fmt.Errorf("channel name is required")
 	}
@@ -93,8 +94,8 @@ func ConfigChannelRemoveAction(c *cli.Context) error {
 }
 
 // ConfigChannelEditAction config channel edit 命令的 Action
-func ConfigChannelEditAction(c *cli.Context) error {
-	name := c.String("name")
+func ConfigChannelEditAction(ctx context.Context, cmd *cli.Command) error {
+	name := cmd.String("name")
 	if name == "" {
 		return fmt.Errorf("channel name is required")
 	}
@@ -115,20 +116,20 @@ func ConfigChannelEditAction(c *cli.Context) error {
 	}
 
 	updated := false
-	if c.IsSet("key") {
-		ch.Key = c.String("key")
+	if cmd.IsSet("key") {
+		ch.Key = cmd.String("key")
 		updated = true
 	}
-	if c.IsSet("to") {
-		ch.To = c.String("to")
+	if cmd.IsSet("to") {
+		ch.To = cmd.String("to")
 		updated = true
 	}
-	if c.IsSet("from") {
-		ch.From = c.String("from")
+	if cmd.IsSet("from") {
+		ch.From = cmd.String("from")
 		updated = true
 	}
-	if c.IsSet("smtp") {
-		ch.SMTP = c.String("smtp")
+	if cmd.IsSet("smtp") {
+		ch.SMTP = cmd.String("smtp")
 		updated = true
 	}
 
@@ -146,7 +147,7 @@ func ConfigChannelEditAction(c *cli.Context) error {
 }
 
 // ConfigChannelListAction config channel list 命令的 Action
-func ConfigChannelListAction(c *cli.Context) error {
+func ConfigChannelListAction(ctx context.Context, cmd *cli.Command) error {
 	cfgPath := filepath.Join(Workspace, utils.PMConfigFile)
 	var cfg utils.Config
 	if err := config.LoadConfig(cfgPath, &cfg); err != nil {

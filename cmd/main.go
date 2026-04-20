@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,7 +12,7 @@ import (
 	"processmanager/internal/manager"
 	"processmanager/internal/utils"
 
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
 func main() {
@@ -45,7 +46,7 @@ func main() {
 
 	logger.InitLogger(cfg.Log)
 
-	app := &cli.App{
+	cmd := &cli.Command{
 		Name:  utils.ProcessManagerName,
 		Usage: "Process manager",
 		Flags: []cli.Flag{
@@ -54,11 +55,11 @@ func main() {
 				Usage: "Enable debug logging",
 			},
 		},
-		Before: func(c *cli.Context) error {
-			if c.Bool("debug") {
+		Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
+			if cmd.Bool("debug") {
 				logger.SetDebug(true)
 			}
-			return nil
+			return ctx, nil
 		},
 		Commands: append(
 			action.GetProcessCommands(),
@@ -75,17 +76,17 @@ func main() {
 						Usage: "Daemon name. eq PM_DAEMON_NAME (default: " + utils.ProcessManagerName + ")",
 					},
 				},
-				Subcommands: action.GetDaemonCommands(),
+				Commands: action.GetDaemonCommands(),
 			},
 			&cli.Command{
-				Name:        "config",
-				Usage:       "Manage configuration",
-				Subcommands: action.GetConfigCommands(),
+				Name:    "config",
+				Usage:   "Manage configuration",
+				Commands: action.GetConfigCommands(),
 			},
 			&cli.Command{
 				Name:   "daemon-run",
 				Hidden: true,
-				Action: func(c *cli.Context) error {
+				Action: func(ctx context.Context, cmd *cli.Command) error {
 					pm := manager.NewProcessManager(cfg)
 					return pm.StartDaemon()
 				},
@@ -93,7 +94,7 @@ func main() {
 		),
 	}
 
-	if err := app.Run(os.Args); err != nil {
+	if err := cmd.Run(context.Background(), os.Args); err != nil {
 		fmt.Printf("Error: %v", err)
 		os.Exit(1)
 	}
