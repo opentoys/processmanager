@@ -153,7 +153,7 @@ func (pm *ProcessManager) IsRunning() bool {
 func (pm *ProcessManager) StartDaemon() error {
 	// 检查是否已经在运行
 	if pm.IsRunning() {
-		return fmt.Errorf(utils.ProcessManagerName + "daemon is already running")
+		return errors.New(utils.ProcessManagerName + "daemon is already running")
 	}
 
 	// 检查是否存在 pm.save 文件

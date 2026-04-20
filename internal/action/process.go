@@ -48,14 +48,14 @@ func GetStartCommand() *cli.Command {
 // StartAction start 命令的 Action
 func StartAction(c *cli.Context) error {
 	if !IsDaemonRunning() {
-		return fmt.Errorf(utils.ProcessManagerName + " daemon is not running")
+		return errors.New(utils.ProcessManagerName + " daemon is not running")
 	}
 
 	script := c.String("script")
 	if script == "" {
 		script = c.Args().First()
 		if script == "" {
-			return fmt.Errorf("script is required")
+			return errors.New("script is required")
 		}
 	}
 
@@ -99,7 +99,7 @@ func GetListCommand() *cli.Command {
 // ListAction list 命令的 Action
 func ListAction(c *cli.Context) error {
 	if !IsDaemonRunning() {
-		return fmt.Errorf(utils.ProcessManagerName + " daemon is not running")
+		return errors.New(utils.ProcessManagerName + " daemon is not running")
 	}
 
 	resp, err := SendCommand("list", nil)
@@ -159,7 +159,7 @@ func GetLogCommand() *cli.Command {
 // LogAction log 命令的 Action
 func LogAction(c *cli.Context) error {
 	if !IsDaemonRunning() {
-		return fmt.Errorf(utils.ProcessManagerName + "daemon is not running")
+		return errors.New(utils.ProcessManagerName + "daemon is not running")
 	}
 
 	args := map[string]string{
@@ -191,7 +191,7 @@ func GetLogsCommand() *cli.Command {
 // LogsAction logs 命令的 Action
 func LogsAction(c *cli.Context) error {
 	if !IsDaemonRunning() {
-		return fmt.Errorf(utils.ProcessManagerName + "daemon is not running")
+		return errors.New(utils.ProcessManagerName + "daemon is not running")
 	}
 
 	resp, err := SendCommand("logs", nil)
@@ -219,7 +219,7 @@ func GetStopCommand() *cli.Command {
 // StopAction stop 命令的 Action
 func StopAction(c *cli.Context) error {
 	if !IsDaemonRunning() {
-		return fmt.Errorf(utils.ProcessManagerName + "daemon is not running")
+		return errors.New(utils.ProcessManagerName + "daemon is not running")
 	}
 
 	args := map[string]string{
@@ -251,7 +251,7 @@ func GetRestartCommand() *cli.Command {
 // RestartAction restart 命令的 Action
 func RestartAction(c *cli.Context) error {
 	if !IsDaemonRunning() {
-		return fmt.Errorf(utils.ProcessManagerName + "daemon is not running")
+		return errors.New(utils.ProcessManagerName + "daemon is not running")
 	}
 
 	args := map[string]string{
@@ -283,7 +283,7 @@ func GetDeleteCommand() *cli.Command {
 // DeleteAction delete 命令的 Action
 func DeleteAction(c *cli.Context) error {
 	if !IsDaemonRunning() {
-		return fmt.Errorf(utils.ProcessManagerName + "daemon is not running")
+		return errors.New(utils.ProcessManagerName + "daemon is not running")
 	}
 
 	args := map[string]string{
@@ -315,7 +315,7 @@ func GetStatusCommand() *cli.Command {
 // StatusAction status 命令的 Action
 func StatusAction(c *cli.Context) error {
 	if !IsDaemonRunning() {
-		return fmt.Errorf(utils.ProcessManagerName + "daemon is not running")
+		return errors.New(utils.ProcessManagerName + "daemon is not running")
 	}
 
 	args := map[string]string{
@@ -347,7 +347,7 @@ func GetReloadCommand() *cli.Command {
 // ReloadAction reload 命令的 Action
 func ReloadAction(c *cli.Context) error {
 	if !IsDaemonRunning() {
-		return fmt.Errorf(utils.ProcessManagerName + "daemon is not running")
+		return errors.New(utils.ProcessManagerName + "daemon is not running")
 	}
 
 	resp, err := SendCommand("reload", nil)
@@ -375,7 +375,7 @@ func GetSaveCommand() *cli.Command {
 // SaveAction save 命令的 Action
 func SaveAction(c *cli.Context) error {
 	if !IsDaemonRunning() {
-		return fmt.Errorf(utils.ProcessManagerName + "daemon is not running")
+		return errors.New(utils.ProcessManagerName + "daemon is not running")
 	}
 
 	resp, err := SendCommand("save", nil)
@@ -403,7 +403,7 @@ func GetResurrectCommand() *cli.Command {
 // ResurrectAction resurrect 命令的 Action
 func ResurrectAction(c *cli.Context) error {
 	if !IsDaemonRunning() {
-		return fmt.Errorf(utils.ProcessManagerName + "daemon is not running")
+		return errors.New(utils.ProcessManagerName + "daemon is not running")
 	}
 
 	resp, err := SendCommand("resurrect", nil)
