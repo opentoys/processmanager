@@ -4,11 +4,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
+	"sort"
 
 	"processmanager/internal/config"
 	"processmanager/internal/utils"
 
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 	"github.com/urfave/cli/v3"
 )
 
@@ -71,6 +75,87 @@ func ConfigLogAction(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
+// ConfigListAction config list 命令的 Action
+func ConfigListAction(ctx context.Context, cmd *cli.Command) error {
+	cfgPath := filepath.Join(Workspace, utils.PMConfigFile)
+	buf, e := os.ReadFile(cfgPath)
+	if e != nil {
+		return e
+	}
+
+	var key = cmd.String("key")
+	if key == "" {
+		key = cmd.Args().First()
+	}
+	var result gjson.Result
+	if key != "" {
+		result = gjson.GetBytes(buf, key)
+	} else {
+		result = gjson.ParseBytes(buf)
+	}
+	var data = gjsonmap(key, result)
+	fmt.Printf("% 8s   %s\n", "Type", "JSON Path")
+	var keys []string
+	for k := range data {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		fmt.Printf("% 8s   %s\n", data[k], k)
+	}
+	fmt.Println("")
+	return nil
+}
+
+func gjsonmap(k string, result gjson.Result) (data map[string]string) {
+	data = make(map[string]string)
+	if k != "" {
+		k += "."
+	}
+	result.ForEach(func(key, value gjson.Result) bool {
+		switch value.Type {
+		case gjson.JSON:
+			mm := gjsonmap(k+key.String(), value)
+			for k, v := range mm {
+				data[k] = v
+			}
+		default:
+			data[k+key.String()] = value.Type.String()
+		}
+		return true
+	})
+	return
+}
+
+// ConfigSetAction config set 命令的 Action
+func ConfigSetAction(ctx context.Context, cmd *cli.Command) error {
+	cfgPath := filepath.Join(Workspace, utils.PMConfigFile)
+
+	buf, e := os.ReadFile(cfgPath)
+	if e != nil {
+		return e
+	}
+
+	var key = cmd.String("key")
+	var value = cmd.String("value")
+	if key == "" && value == "" {
+		key = cmd.Args().First()
+		value = cmd.Args().Get(1)
+	}
+	if key != "" && value == "" {
+		value = cmd.Args().First()
+	}
+	sval, e := sjson.Set(string(buf), key, value)
+	if e != nil {
+		return e
+	}
+
+	if err := os.WriteFile(cfgPath, []byte(sval), 0o644); err != nil {
+		return fmt.Errorf("failed to save config: %w", err)
+	}
+	return nil
+}
+
 // GetConfigShowCommand 返回 config show 命令
 func GetConfigShowCommand() *cli.Command {
 	return &cli.Command{
@@ -100,5 +185,44 @@ func GetConfigLogCommand() *cli.Command {
 			},
 		},
 		Action: ConfigLogAction,
+	}
+}
+
+// GetConfigListCommand 返回 config list 命令
+func GetConfigListCommand() *cli.Command {
+	return &cli.Command{
+		Name:    "list",
+		Usage:   "Configure log settings",
+		Aliases: []string{"ls", "l"},
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:    "key",
+				Aliases: []string{"k"},
+				Usage:   "Max size of each log file in MB",
+			},
+		},
+		Action: ConfigListAction,
+	}
+}
+
+// GetConfigSetCommand 设置 config 命令
+func GetConfigSetCommand() *cli.Command {
+	return &cli.Command{
+		Name:      "set",
+		Usage:     "Configure log settings",
+		ArgsUsage: "[k.name value]",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:    "key",
+				Aliases: []string{"k"},
+				Usage:   "Max size of each log file in MB",
+			},
+			&cli.StringFlag{
+				Name:    "value",
+				Aliases: []string{"v"},
+				Usage:   "Max number of log files to keep",
+			},
+		},
+		Action: ConfigSetAction,
 	}
 }

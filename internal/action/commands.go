@@ -9,6 +9,8 @@ func GetConfigCommands() []*cli.Command {
 	return []*cli.Command{
 		GetConfigShowCommand(),
 		GetConfigLogCommand(),
+		GetConfigListCommand(),
+		GetConfigSetCommand(),
 		GetReloadCommand(),
 		{
 			Name:     "channel",
