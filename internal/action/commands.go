@@ -9,6 +9,7 @@ func GetConfigCommands() []*cli.Command {
 	return []*cli.Command{
 		GetConfigShowCommand(),
 		GetConfigLogCommand(),
+		GetReloadCommand(),
 		{
 			Name:     "channel",
 			Usage:    "Manage notification channels",

@@ -458,7 +458,6 @@ func GetProcessCommands() []*cli.Command {
 		GetRestartCommand(),
 		GetDeleteCommand(),
 		GetStatusCommand(),
-		GetReloadCommand(),
 		GetSaveCommand(),
 		GetResurrectCommand(),
 		GetVersionCommand(),
