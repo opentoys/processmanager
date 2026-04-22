@@ -145,6 +145,10 @@ pm resurrect
 └── go.sum
 ```
 
+## 鸣谢
+
+- [Ascii Text](https://patorjk.com/software/taag/#f=Wet+Letter)
+
 ## 许可证
 
 MIT License

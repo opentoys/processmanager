@@ -447,20 +447,50 @@ func VersionAction(ctx context.Context, cmd *cli.Command) error {
 	return nil
 }
 
+// GetDaemonCommand 返回 daemon 命令
+func GetDaemonCommand() *cli.Command {
+	return &cli.Command{
+		Name:  "daemon",
+		Usage: "Manage " + utils.ProcessManagerName + " daemon",
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:  "kind",
+				Usage: "Daemon kind: UserAgent, GlobalAgent, GlobalDaemon, SystemDaemon. only support MacOS. eq PM_DAEMON_KIND (default: UserAgent)",
+			},
+			&cli.StringFlag{
+				Name:  "name",
+				Usage: "Daemon name. eq PM_DAEMON_NAME (default: " + utils.ProcessManagerName + ")",
+			},
+		},
+		Commands: GetDaemonCommands(),
+	}
+}
+
+// GetConfigCommand 返回 config 命令
+func GetConfigCommand() *cli.Command {
+	return &cli.Command{
+		Name:     "config",
+		Usage:    "Manage configuration",
+		Commands: GetConfigCommands(),
+	}
+}
+
 // GetProcessCommands 返回所有进程管理相关命令
 func GetProcessCommands() []*cli.Command {
 	return []*cli.Command{
 		GetStartCommand(),
-		GetListCommand(),
-		GetEnvCommand(),
-		GetLogCommand(),
-		GetLogsCommand(),
 		GetStopCommand(),
 		GetRestartCommand(),
 		GetDeleteCommand(),
+		GetListCommand(),
 		GetStatusCommand(),
+		GetEnvCommand(),
+		GetLogCommand(),
+		GetLogsCommand(),
 		GetSaveCommand(),
 		GetResurrectCommand(),
+		GetConfigCommand(),
+		GetDaemonCommand(),
 		GetVersionCommand(),
 	}
 }

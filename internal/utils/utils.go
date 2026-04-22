@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"net/url"
 	"os"
 	"path/filepath"
 )
@@ -23,4 +24,9 @@ func GetWorkspacePath() string {
 // GetSocketPath 获取 Unix socket 路径
 func GetSocketPath() string {
 	return filepath.Join(GetWorkspacePath(), "pm.sock")
+}
+
+func DecodeURI(enc string) (dec string) {
+	dec, _ = url.QueryUnescape(enc)
+	return
 }

@@ -50,6 +50,10 @@ func main() {
 		Name:                  utils.ProcessManagerName,
 		Usage:                 "Process manager",
 		EnableShellCompletion: true,
+		Copyright:             "MIT © 2026 Alonelucky",
+		Authors: []any{
+			"Alonelucky(https://github.com/opentoys/processmanager)",
+		},
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:  "debug",
@@ -71,28 +75,9 @@ func main() {
 			}
 			return ctx, nil
 		},
+		CustomRootCommandHelpTemplate: utils.DecodeURI(utils.ProcessManagerAscii) + "\n\n" + cli.RootCommandHelpTemplate,
 		Commands: append(
 			action.GetProcessCommands(),
-			&cli.Command{
-				Name:  "daemon",
-				Usage: "Manage " + utils.ProcessManagerName + " daemon",
-				Flags: []cli.Flag{
-					&cli.StringFlag{
-						Name:  "kind",
-						Usage: "Daemon kind: UserAgent, GlobalAgent, GlobalDaemon, SystemDaemon. only support MacOS. eq PM_DAEMON_KIND (default: UserAgent)",
-					},
-					&cli.StringFlag{
-						Name:  "name",
-						Usage: "Daemon name. eq PM_DAEMON_NAME (default: " + utils.ProcessManagerName + ")",
-					},
-				},
-				Commands: action.GetDaemonCommands(),
-			},
-			&cli.Command{
-				Name:     "config",
-				Usage:    "Manage configuration",
-				Commands: action.GetConfigCommands(),
-			},
 			&cli.Command{
 				Name:   "daemon-run",
 				Hidden: true,
