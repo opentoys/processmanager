@@ -317,9 +317,10 @@ func DeleteAction(ctx context.Context, cmd *cli.Command) error {
 // GetStatusCommand 返回 status 命令
 func GetStatusCommand() *cli.Command {
 	return &cli.Command{
-		Name:   "status",
-		Usage:  "Show status for a process",
-		Action: StatusAction,
+		Name:    "status",
+		Usage:   "Show status for a process",
+		Aliases: []string{"show", "info"},
+		Action:  StatusAction,
 	}
 }
 
