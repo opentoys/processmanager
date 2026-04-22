@@ -79,8 +79,8 @@ func main() {
 				Commands: action.GetDaemonCommands(),
 			},
 			&cli.Command{
-				Name:    "config",
-				Usage:   "Manage configuration",
+				Name:     "config",
+				Usage:    "Manage configuration",
 				Commands: action.GetConfigCommands(),
 			},
 			&cli.Command{

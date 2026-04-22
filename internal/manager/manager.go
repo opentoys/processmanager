@@ -25,21 +25,21 @@ import (
 
 // ProcessState 进程状态
 type ProcessState struct {
-	ID           string            `json:"id"`
-	Name         string            `json:"name"`
-	Status       string            `json:"status"`
-	PID          int               `json:"pid"`
-	StartTime    time.Time         `json:"start_time"`
-	CreatedAt    time.Time         `json:"created_at"`
-	Restarts     int               `json:"restarts"`
-	Script       string            `json:"script"`
-	Args         []string          `json:"args"`
-	Env          map[string]string `json:"env"`
-	LogPath      string            `json:"log_path"`
-	Cwd          string            `json:"cwd"`
-	MaxRestarts  int               `json:"max_restarts"`
-	RestartDelay int               `json:"restart_delay"`
-	FullEnv      []string          `json:"full_env"` // 存储完整的环境变量
+	ID           string    `json:"id"`
+	Name         string    `json:"name"`
+	Status       string    `json:"status"`
+	PID          int       `json:"pid"`
+	StartTime    time.Time `json:"start_time"`
+	CreatedAt    time.Time `json:"created_at"`
+	Restarts     int       `json:"restarts"`
+	Script       string    `json:"script"`
+	Args         []string  `json:"args"`
+	Env          []string  `json:"env"`
+	LogPath      string    `json:"log_path"`
+	Cwd          string    `json:"cwd"`
+	MaxRestarts  int       `json:"max_restarts"`
+	RestartDelay int       `json:"restart_delay"`
+	FullEnv      []string  `json:"full_env"` // 存储完整的环境变量
 }
 
 // StateFile 状态文件
@@ -408,10 +408,15 @@ func (pm *ProcessManager) handleStartCommand(conn net.Conn, argsJSON json.RawMes
 		}
 	}
 
-	envFile := ""
+	// 读取环境变量
+	var env []string
 	if args["env"] != nil {
-		if envStr, ok := args["env"].(string); ok {
-			envFile = envStr
+		if envs, ok := args["env"].([]any); ok {
+			for _, arg := range envs {
+				if argStr, ok := arg.(string); ok {
+					env = append(env, argStr)
+				}
+			}
 		}
 	}
 
@@ -435,15 +440,6 @@ func (pm *ProcessManager) handleStartCommand(conn net.Conn, argsJSON json.RawMes
 	if _, ok := pm.processes[name]; ok {
 		pm.sendResponse(conn, false, fmt.Sprintf("Process %s already exists", name), nil)
 		return
-	}
-
-	// 读取环境变量
-	env := make(map[string]string)
-	if envFile != "" {
-		if err := loadEnvFile(envFile, env); err != nil {
-			pm.sendResponse(conn, false, fmt.Sprintf("Failed to load env file: %v", err), nil)
-			return
-		}
 	}
 
 	// 设置工作目录
@@ -1319,25 +1315,14 @@ func (pm *ProcessManager) GetProcessByNameOrID(nameOrID string) (*Process, error
 }
 
 // loadEnvFile 加载环境变量文件
-func loadEnvFile(filePath string, env map[string]string) error {
+func loadEnvFile(filePath string) (envs []string, err error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
-		return err
+		return
 	}
 
-	lines := strings.Split(string(data), "\n")
-	for _, line := range lines {
-		if len(line) > 0 && line[0] != '#' {
-			parts := strings.Split(line, "=")
-			if len(parts) >= 2 {
-				key := strings.TrimSpace(parts[0])
-				value := strings.TrimSpace(strings.Join(parts[1:], "="))
-				env[key] = value
-			}
-		}
-	}
-
-	return nil
+	envs = strings.Split(string(data), "\n")
+	return
 }
 
 // saveState 保存进程状态

@@ -28,8 +28,8 @@ type Process struct {
 	restarts   int
 	id         string
 	manager    *ProcessManager
-	env        []string       // 存储启动时的环境变量
-	logWriter  *LogWriter     // 多写日志写入器（文件 + 监听器）
+	env        []string   // 存储启动时的环境变量
+	logWriter  *LogWriter // 多写日志写入器（文件 + 监听器）
 }
 
 // NewProcess 创建进程
@@ -74,8 +74,8 @@ func (p *Process) Start() error {
 
 	// 设置环境变量
 	env := os.Environ()
-	for k, v := range p.config.Env {
-		env = append(env, fmt.Sprintf("%s=%s", k, v))
+	for _, v := range p.config.Env {
+		env = append(env, v)
 	}
 	p.cmd.Env = env
 	p.env = env // 记录当前环境变量

@@ -17,11 +17,11 @@ type Response struct {
 
 // Config 应用配置
 type Config struct {
-	Log         LogConfig              `json:"log"`
-	StateFile   string                 `json:"state_file"`
-	MaxRestarts int                    `json:"max_restarts"`
-	Channels    map[string]ChanConfig  `json:"channels,omitempty"`
-	Notice      map[string]NoticeRule  `json:"notice,omitempty"`
+	Log         LogConfig             `json:"log"`
+	StateFile   string                `json:"state_file"`
+	MaxRestarts int                   `json:"max_restarts"`
+	Channels    map[string]ChanConfig `json:"channels,omitempty"`
+	Notice      map[string]NoticeRule `json:"notice,omitempty"`
 }
 
 // ChanConfig 通知通道配置
@@ -51,12 +51,12 @@ type LogConfig struct {
 
 // ProcessConfig 进程配置
 type ProcessConfig struct {
-	Name         string            `json:"name"`
-	Script       string            `json:"script"`
-	Args         []string          `json:"args"`
-	Env          map[string]string `json:"env"`
-	LogPath      string            `json:"log_path"`
-	Cwd          string            `json:"cwd"`
-	MaxRestarts  int               `json:"max_restarts"`
-	RestartDelay int               `json:"restart_delay"`
+	Name         string   `json:"name"`
+	Script       string   `json:"script"`
+	Args         []string `json:"args"`
+	Env          []string `json:"env"`
+	LogPath      string   `json:"log_path"`
+	Cwd          string   `json:"cwd"`
+	MaxRestarts  int      `json:"max_restarts"`
+	RestartDelay int      `json:"restart_delay"`
 }

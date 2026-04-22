@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"processmanager/internal/utils"
@@ -14,8 +15,9 @@ import (
 // GetStartCommand 返回 start 命令
 func GetStartCommand() *cli.Command {
 	return &cli.Command{
-		Name:  "start",
-		Usage: "Start a new process",
+		Name:      "start",
+		Usage:     "Start a new process",
+		ArgsUsage: "script",
 		Flags: []cli.Flag{
 			&cli.StringFlag{
 				Name:  "name",
@@ -26,12 +28,14 @@ func GetStartCommand() *cli.Command {
 				Usage: "Script or command to execute",
 			},
 			&cli.StringSliceFlag{
-				Name:  "args",
-				Usage: "Arguments to pass to the script",
+				Name:    "args",
+				Aliases: []string{"a"},
+				Usage:   "Arguments to pass to the script",
 			},
-			&cli.StringFlag{
-				Name:  "env",
-				Usage: "Environment variable file path",
+			&cli.StringSliceFlag{
+				Name:    "env",
+				Aliases: []string{"e"},
+				Usage:   "Environment variable file path",
 			},
 			&cli.StringFlag{
 				Name:  "log",
@@ -64,15 +68,21 @@ func StartAction(ctx context.Context, cmd *cli.Command) error {
 	if name == "" {
 		name = filepath.Base(script)
 	}
+	cwd := cmd.String("cwd")
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
 
 	args := map[string]any{
 		"name":   name,
 		"script": script,
 		"args":   cmd.StringSlice("args"),
-		"env":    cmd.String("env"),
+		"env":    cmd.StringSlice("env"),
 		"log":    cmd.String("log"),
-		"cwd":    cmd.String("cwd"),
+		"cwd":    cwd,
 	}
+
+	fmt.Println(args)
 
 	resp, err := SendCommand("start", args)
 	if err != nil {
