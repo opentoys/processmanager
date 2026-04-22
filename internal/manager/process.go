@@ -26,6 +26,7 @@ type Process struct {
 	startTime  time.Time
 	createdAt  time.Time
 	restarts   int
+	handle     bool // 是否手动处理的状态
 	id         string
 	manager    *ProcessManager
 	env        []string   // 存储启动时的环境变量
@@ -112,6 +113,7 @@ func (p *Process) Start() error {
 	p.status = utils.ProcessStatusRunning
 	p.startTime = time.Now()
 	p.restarts = 0 // 重置重启次数为 0
+	p.handle = false
 
 	slog.Debug("Process started", "process", p.config.Name, "pid", p.pid)
 
@@ -177,6 +179,7 @@ func (p *Process) Stop() error {
 
 	p.status = utils.ProcessStatusStopped
 	p.pid = 0
+	p.handle = true
 	slog.Debug("Process stopped", "process", p.config.Name)
 
 	// 同步保存状态
@@ -205,8 +208,7 @@ func (p *Process) Restart() error {
 		return err
 	}
 
-	p.restarts++
-	slog.Debug("Process restarted", "process", p.config.Name, "restarts", p.restarts)
+	slog.Debug("Process restarted", "process", p.config.Name)
 
 	// 保存状态
 	if p.manager != nil {

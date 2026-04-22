@@ -40,6 +40,7 @@ type ProcessState struct {
 	MaxRestarts  int       `json:"max_restarts"`
 	RestartDelay int       `json:"restart_delay"`
 	FullEnv      []string  `json:"full_env"` // 存储完整的环境变量
+	Handle       bool      `json:"handle"`
 }
 
 // StateFile 状态文件
@@ -1105,7 +1106,8 @@ func (pm *ProcessManager) handleResurrectCommand(conn net.Conn) {
 // checkProcesses 检查所有进程的状态
 func (pm *ProcessManager) checkProcesses() {
 	for name, process := range pm.processes {
-		if process.status == utils.ProcessStatusRunning {
+		switch process.status {
+		case utils.ProcessStatusRunning:
 			// 检查进程是否存在
 			if process.pid > 0 {
 				processObj, err := os.FindProcess(process.pid)
@@ -1174,7 +1176,11 @@ func (pm *ProcessManager) checkProcesses() {
 					slog.Info("Max restarts reached, stopping", "process", name, "max_restarts", maxRestarts)
 				}
 			}
-		} else if process.status == utils.ProcessStatusStopped {
+		case utils.ProcessStatusStopped:
+			if process.handle {
+				continue
+			}
+
 			// 检查是否需要重启已停止的进程
 			maxRestarts := process.config.MaxRestarts
 			if maxRestarts == 0 {
@@ -1374,6 +1380,7 @@ func (pm *ProcessManager) saveState() error {
 			MaxRestarts:  process.config.MaxRestarts,
 			RestartDelay: process.config.RestartDelay,
 			FullEnv:      process.env,
+			Handle:       process.handle,
 		}
 	}
 
