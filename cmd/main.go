@@ -47,12 +47,22 @@ func main() {
 	logger.InitLogger(cfg.Log)
 
 	cmd := &cli.Command{
-		Name:  utils.ProcessManagerName,
-		Usage: "Process manager",
+		Name:                  utils.ProcessManagerName,
+		Usage:                 "Process manager",
+		EnableShellCompletion: true,
 		Flags: []cli.Flag{
 			&cli.BoolFlag{
 				Name:  "debug",
 				Usage: "Enable debug logging",
+			},
+			&cli.BoolFlag{
+				Name:    "version",
+				Aliases: []string{"v"},
+				Usage:   "Show version information",
+				Action: func(ctx context.Context, c *cli.Command, b bool) (e error) {
+					defer os.Exit(0)
+					return action.VersionAction(ctx, c)
+				},
 			},
 		},
 		Before: func(ctx context.Context, cmd *cli.Command) (context.Context, error) {
