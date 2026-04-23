@@ -489,6 +489,8 @@ func GetProcessCommands() []*cli.Command {
 		GetLogsCommand(),
 		GetSaveCommand(),
 		GetResurrectCommand(),
+		GetPluginCommand(),
+		GetCrontabCommand(),
 		GetConfigCommand(),
 		GetDaemonCommand(),
 		GetVersionCommand(),

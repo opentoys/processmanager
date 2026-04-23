@@ -26,12 +26,14 @@ const (
 )
 
 const (
-	PMSaveFile   = "pm.save"
-	PMStateFile  = "pm.state"
-	PMSocketFile = "pm.sock"
-	PMPidFile    = "pm.pid"
-	PMLogDir     = "logs/"
-	PMConfigFile = "config.json"
+	PMSaveFile     = "pm.save"
+	PMStateFile    = "pm.state"
+	PMSocketFile   = "pm.sock"
+	PMPidFile      = "pm.pid"
+	PMLogDir       = "logs/"
+	PMConfigFile   = "config.json"
+	PMCronFile     = "pm.cron"
+	PMCronLogDir   = "logs/cron/"
 )
 
 const (

@@ -58,7 +58,7 @@ func SendCommand(action string, args any) (*utils.Response, error) {
 		return nil, fmt.Errorf("failed to write command: %w", err)
 	}
 
-	if action == "log" || action == "logs" {
+	if action == "log" || action == "logs" || action == "cron-log" || action == "cron-logs" {
 		readBuf := make([]byte, 4096)
 		for {
 			n, err := conn.Read(readBuf)

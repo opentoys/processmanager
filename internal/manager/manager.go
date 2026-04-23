@@ -50,16 +50,17 @@ type StateFile struct {
 
 // ProcessManager 进程管理器
 type ProcessManager struct {
-	config     *utils.Config
-	processes  map[string]*Process
-	logManager *logger.LogManager
-	stateFile  string
-	running    bool          // 守护进程运行状态
-	stopChan   chan struct{} // 停止信号通道
-	pidFile    string        // 存储守护进程 PID 的文件
-	socketPath string        // Unix socket 路径
-	startTime  time.Time     // 守护进程启动时间
-	notifier   *notifier.Notifier
+	config      *utils.Config
+	processes   map[string]*Process
+	logManager  *logger.LogManager
+	stateFile   string
+	running     bool          // 守护进程运行状态
+	stopChan    chan struct{} // 停止信号通道
+	pidFile     string        // 存储守护进程 PID 的文件
+	socketPath  string        // Unix socket 路径
+	startTime   time.Time     // 守护进程启动时间
+	notifier    *notifier.Notifier
+	cronManager *CronManager // 定时任务管理器
 }
 
 // NewProcessManager 创建进程管理器
@@ -97,16 +98,17 @@ func NewProcessManager(cfg *utils.Config) *ProcessManager {
 	socketPath := utils.GetSocketPath()
 
 	pm := &ProcessManager{
-		config:     cfg,
-		processes:  make(map[string]*Process),
-		logManager: logger.NewLogManager(cfg.Log),
-		stateFile:  stateFile,
-		running:    false,
-		stopChan:   make(chan struct{}),
-		pidFile:    pidFile,
-		socketPath: socketPath,
-		startTime:  time.Now(),
-		notifier:   notifier.NewNotifier(cfg),
+		config:      cfg,
+		processes:   make(map[string]*Process),
+		logManager:  logger.NewLogManager(cfg.Log),
+		stateFile:   stateFile,
+		running:     false,
+		stopChan:    make(chan struct{}),
+		pidFile:     pidFile,
+		socketPath:  socketPath,
+		startTime:   time.Now(),
+		notifier:    notifier.NewNotifier(cfg),
+		cronManager: NewCronManager(),
 	}
 
 	// 加载进程状态
@@ -235,6 +237,9 @@ func (pm *ProcessManager) StartDaemon() error {
 	pm.running = true
 	slog.Info(utils.ProcessManagerName+"daemon started", "pid", pid, "socket", pm.socketPath)
 
+	// 启动定时任务调度器
+	pm.cronManager.Start()
+
 	// 监听系统信号，优雅关闭
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
@@ -348,6 +353,16 @@ func (pm *ProcessManager) handleCommand(conn net.Conn, cmd utils.Command) {
 		pm.handleSaveCommand(conn)
 	case "resurrect":
 		pm.handleResurrectCommand(conn)
+	case "cron-set":
+		pm.handleCronSetCommand(conn, cmd.Args)
+	case "cron-remove":
+		pm.handleCronRemoveCommand(conn, cmd.Args)
+	case "cron-list":
+		pm.handleCronListCommand(conn)
+	case "cron-log":
+		pm.handleCronLogCommand(conn, cmd.Args)
+	case "cron-logs":
+		pm.handleCronLogsCommand(conn)
 	default:
 		pm.sendResponse(conn, false, "Unknown command", nil)
 	}
@@ -602,8 +617,8 @@ func (pm *ProcessManager) handleEnvCommand(conn net.Conn, argsJSON json.RawMessa
 		}
 	} else {
 		// 如果没有记录的环境变量，显示配置中的环境变量
-		for key, value := range process.config.Env {
-			output.WriteString(fmt.Sprintf("%s=%s\n", key, value))
+		for _, value := range process.config.Env {
+			output.WriteString(value)
 		}
 	}
 
@@ -631,39 +646,99 @@ func (pm *ProcessManager) handleLogCommand(conn net.Conn, argsJSON json.RawMessa
 		return
 	}
 
-	// 检查进程是否有 logWriter
-	if proc.logWriter == nil {
-		pm.sendResponse(conn, true, "Process is not running or log writer not available\n", nil)
+	// 获取日志文件路径
+	var logPath string
+	if proc.logWriter != nil {
+		logPath = proc.logWriter.lj.Filename
+	} else if proc.config != nil {
+		logPath = proc.config.LogPath
+	}
+
+	if logPath == "" {
+		pm.sendResponse(conn, true, "No log file available\n", nil)
 		return
 	}
 
-	// 注册监听器到 LogWriter
-	listener := proc.logWriter.AddListener()
-	defer proc.logWriter.RemoveListener(listener)
+	// 先输出日志文件最后 5 行
+	if data, err := os.ReadFile(logPath); err == nil && len(data) > 0 {
+		lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+		if len(lines) > 5 {
+			lines = lines[len(lines)-5:]
+		}
+		conn.Write([]byte(strings.Join(lines, "\n") + "\n"))
+	}
 
-	// 检测客户端断开
+	// 如果 logWriter 可用，用 channel 实时监听
+	if proc.logWriter != nil {
+		listener := proc.logWriter.AddListener()
+		defer proc.logWriter.RemoveListener(listener)
+
+		disconnected := make(chan error, 1)
+		go func() {
+			buf := make([]byte, 1)
+			_, err := conn.Read(buf)
+			disconnected <- err
+		}()
+
+		for {
+			select {
+			case data, ok := <-listener:
+				if !ok {
+					return
+				}
+				if _, err := conn.Write(data); err != nil {
+					return
+				}
+			case <-disconnected:
+				return
+			}
+		}
+	}
+
+	// logWriter 不可用时，用文件 tail 模式实时监听
 	disconnected := make(chan error, 1)
 	go func() {
 		buf := make([]byte, 1)
-		_, err := conn.Read(buf) // 任意读操作，客户端断开后返回错误
+		_, err := conn.Read(buf)
 		disconnected <- err
 	}()
 
-	// 从 channel 读取日志数据并实时推送给客户端
+	offset := int64(0)
+	if info, err := os.Stat(logPath); err == nil {
+		offset = info.Size()
+	}
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
 	for {
 		select {
-		case data, ok := <-listener:
-			if !ok {
-				// channel 已关闭，进程日志输出结束
-				return
-			}
-			if _, err := conn.Write(data); err != nil {
-				// 客户端断开连接
-				return
-			}
 		case <-disconnected:
-			// 客户端断开连接
 			return
+		case <-ticker.C:
+			f, err := os.Open(logPath)
+			if err != nil {
+				continue
+			}
+			info, err := f.Stat()
+			if err != nil {
+				f.Close()
+				continue
+			}
+			if info.Size() <= offset {
+				f.Close()
+				continue
+			}
+			buf := make([]byte, info.Size()-offset)
+			_, err = f.ReadAt(buf, offset)
+			f.Close()
+			if err != nil {
+				continue
+			}
+			if _, err := conn.Write(buf); err != nil {
+				return
+			}
+			offset = info.Size()
 		}
 	}
 }
@@ -1073,7 +1148,6 @@ func (pm *ProcessManager) handleResurrectCommand(conn net.Conn) {
 
 		// 恢复进程状态
 		process.id = processState.ID
-		process.status = processState.Status
 		process.pid = processState.PID
 		process.startTime = processState.StartTime
 		process.createdAt = processState.CreatedAt
@@ -1090,10 +1164,14 @@ func (pm *ProcessManager) handleResurrectCommand(conn net.Conn) {
 		if processState.Status == utils.ProcessStatusRunning {
 			if err := process.Start(); err != nil {
 				slog.Error("Failed to start process from save data", "error", err, "process", processState.Name)
+				// Start 失败，状态回退为 stopped
+				process.status = utils.ProcessStatusStopped
 			} else {
 				restarted++
 				slog.Info("Process restarted from save data", "process", processState.Name)
 			}
+		} else {
+			process.status = processState.Status
 		}
 	}
 
@@ -1520,4 +1598,267 @@ func isConnectionClosed(err error) bool {
 		}
 	}
 	return false
+}
+
+// handleCronSetCommand 处理 cron-set 命令
+func (pm *ProcessManager) handleCronSetCommand(conn net.Conn, argsJSON json.RawMessage) {
+	var args struct {
+		Name   string   `json:"name"`
+		Spec   string   `json:"spec"`
+		Script string   `json:"script"`
+		Args   []string `json:"args"`
+		Env    []string `json:"env"`
+		Cwd    string   `json:"cwd"`
+	}
+	if err := json.Unmarshal(argsJSON, &args); err != nil {
+		pm.sendResponse(conn, false, "Invalid arguments", nil)
+		return
+	}
+
+	// script 可以从参数或 args 中获取
+	if args.Script == "" {
+		if args.Name == "" {
+			pm.sendResponse(conn, false, "script is required", nil)
+			return
+		}
+	}
+
+	cfg := utils.CronJobConfig{
+		Name:    args.Name,
+		Spec:    args.Spec,
+		Script:  args.Script,
+		Args:    args.Args,
+		Env:     args.Env,
+		Cwd:     args.Cwd,
+		Enabled: true,
+	}
+
+	if err := pm.cronManager.AddJob(cfg); err != nil {
+		pm.sendResponse(conn, false, err.Error(), nil)
+		return
+	}
+
+	pm.sendResponse(conn, true, fmt.Sprintf("Cron job %s added successfully (spec: %s)", args.Name, args.Spec), nil)
+}
+
+// handleCronRemoveCommand 处理 cron-remove 命令
+func (pm *ProcessManager) handleCronRemoveCommand(conn net.Conn, argsJSON json.RawMessage) {
+	var args struct {
+		NameOrID string `json:"nameOrID"`
+	}
+	if err := json.Unmarshal(argsJSON, &args); err != nil {
+		pm.sendResponse(conn, false, "Invalid arguments", nil)
+		return
+	}
+
+	if args.NameOrID == "" {
+		pm.sendResponse(conn, false, "cron job name or ID is required", nil)
+		return
+	}
+
+	if err := pm.cronManager.RemoveJob(args.NameOrID); err != nil {
+		pm.sendResponse(conn, false, err.Error(), nil)
+		return
+	}
+
+	pm.sendResponse(conn, true, fmt.Sprintf("Cron job %s removed successfully", args.NameOrID), nil)
+}
+
+// handleCronListCommand 处理 cron-list 命令
+func (pm *ProcessManager) handleCronListCommand(conn net.Conn) {
+	jobs := pm.cronManager.ListJobs()
+
+	if len(jobs) == 0 {
+		pm.sendResponse(conn, true, "No cron jobs", nil)
+		return
+	}
+
+	var output strings.Builder
+	output.WriteString("+-----+--------------------+-----------------+---------+-------------+-------------+-----------+\n")
+	output.WriteString(fmt.Sprintf("| %-3s | %-18s | %-15s | %-7s | %-11s | %-11s | %-9s |\n", "ID", "Name", "Spec", "Status", "Last Run", "Next Run", "Total"))
+	output.WriteString("+-----+--------------------+-----------------+---------+-------------+-------------+-----------+\n")
+
+	for i, job := range jobs {
+		lastRun := "-"
+		if job.LastRunAt > 0 {
+			lastRun = time.Unix(job.LastRunAt, 0).Format("01-02 15:04")
+		}
+		nextRun := "-"
+		if job.NextRunAt > 0 {
+			nextRun = time.Unix(job.NextRunAt, 0).Format("01-02 15:04")
+		}
+		output.WriteString(fmt.Sprintf("| %-3d | %-18s | %-15s | %-7s | %-11s | %-11s | %d/%d |\n",
+			i+1, job.Name, job.Spec, job.LastStatus, lastRun, nextRun, job.TotalRun-job.TotalFail, job.TotalRun))
+	}
+
+	output.WriteString("+-----+--------------------+-----------------+---------+-------------+-------------+-----------+\n")
+
+	pm.sendResponse(conn, true, output.String(), nil)
+}
+
+// handleCronLogCommand 处理 cron-log 命令（实时 tail 日志）
+func (pm *ProcessManager) handleCronLogCommand(conn net.Conn, argsJSON json.RawMessage) {
+	var args struct {
+		NameOrID string `json:"nameOrID"`
+	}
+	if err := json.Unmarshal(argsJSON, &args); err != nil {
+		pm.sendResponse(conn, false, "Invalid arguments", nil)
+		return
+	}
+
+	if args.NameOrID == "" {
+		pm.sendResponse(conn, false, "cron job name or ID is required", nil)
+		return
+	}
+
+	logPath, err := pm.cronManager.GetJobLogPath(args.NameOrID)
+	if err != nil {
+		pm.sendResponse(conn, false, err.Error(), nil)
+		return
+	}
+
+	// 只输出最后 5 行日志
+	data, err := os.ReadFile(logPath)
+	if err != nil && !os.IsNotExist(err) {
+		pm.sendResponse(conn, false, fmt.Sprintf("Failed to read log file: %v", err), nil)
+		return
+	}
+	if len(data) > 0 {
+		lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+		if len(lines) > 5 {
+			lines = lines[len(lines)-5:]
+		}
+		conn.Write([]byte(strings.Join(lines, "\n") + "\n"))
+	}
+
+	// 检测客户端断开
+	disconnected := make(chan error, 1)
+	go func() {
+		buf := make([]byte, 1)
+		_, err := conn.Read(buf)
+		disconnected <- err
+	}()
+
+	// 实时 tail 日志文件，offset 从当前文件末尾开始
+	offset := int64(0)
+	if info, err := os.Stat(logPath); err == nil {
+		offset = info.Size()
+	}
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-disconnected:
+			return
+		case <-ticker.C:
+			f, err := os.Open(logPath)
+			if err != nil {
+				continue
+			}
+			info, err := f.Stat()
+			if err != nil {
+				f.Close()
+				continue
+			}
+			if info.Size() <= offset {
+				f.Close()
+				continue
+			}
+			buf := make([]byte, info.Size()-offset)
+			_, err = f.ReadAt(buf, offset)
+			f.Close()
+			if err != nil {
+				continue
+			}
+			if _, err := conn.Write(buf); err != nil {
+				return
+			}
+			offset = info.Size()
+		}
+	}
+}
+
+// handleCronLogsCommand 处理 cron-logs 命令（实时监听所有定时任务日志）
+func (pm *ProcessManager) handleCronLogsCommand(conn net.Conn) {
+	cm := pm.cronManager
+	cm.mu.RLock()
+	type tailEntry struct {
+		name    string
+		logFile string
+	}
+	var entries []tailEntry
+	for _, job := range cm.jobs {
+		entries = append(entries, tailEntry{name: job.state.Name, logFile: job.logFile})
+	}
+	cm.mu.RUnlock()
+
+	if len(entries) == 0 {
+		fmt.Fprintf(conn, "No cron jobs.\n")
+		return
+	}
+
+	// 记录每个文件的读取偏移
+	offsets := make(map[string]int64)
+	for _, e := range entries {
+		if info, err := os.Stat(e.logFile); err == nil {
+			offsets[e.name] = info.Size()
+		}
+	}
+
+	// 检测客户端断开
+	disconnected := make(chan error, 1)
+	go func() {
+		buf := make([]byte, 1)
+		_, err := conn.Read(buf)
+		disconnected <- err
+	}()
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-disconnected:
+			return
+		case <-ticker.C:
+			cm.mu.RLock()
+			for _, e := range entries {
+				f, err := os.Open(e.logFile)
+				if err != nil {
+					continue
+				}
+				info, err := f.Stat()
+				if err != nil {
+					f.Close()
+					continue
+				}
+				offset := offsets[e.name]
+				if info.Size() <= offset {
+					f.Close()
+					continue
+				}
+				buf := make([]byte, info.Size()-offset)
+				_, err = f.ReadAt(buf, offset)
+				f.Close()
+				if err != nil {
+					continue
+				}
+				// 为每行添加 [name] 前缀
+				for _, line := range strings.Split(string(buf), "\n") {
+					if line == "" {
+						continue
+					}
+					output := fmt.Sprintf("[%s] %s\n", e.name, line)
+					if _, err := conn.Write([]byte(output)); err != nil {
+						cm.mu.RUnlock()
+						return
+					}
+				}
+				offsets[e.name] = info.Size()
+			}
+			cm.mu.RUnlock()
+		}
+	}
 }

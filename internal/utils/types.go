@@ -60,3 +60,35 @@ type ProcessConfig struct {
 	MaxRestarts  int      `json:"max_restarts"`
 	RestartDelay int      `json:"restart_delay"`
 }
+
+// CronJobConfig 定时任务配置
+type CronJobConfig struct {
+	Name    string   `json:"name"`
+	Spec    string   `json:"spec"`     // cron 表达式，如 "0 */5 * * *"
+	Script  string   `json:"script"`   // 要执行的脚本或命令
+	Args    []string `json:"args"`     // 脚本参数
+	Env     []string `json:"env"`      // 环境变量
+	Cwd     string   `json:"cwd"`      // 工作目录
+	Enabled bool     `json:"enabled"`  // 是否启用
+}
+
+// CronJobState 定时任务运行状态
+type CronJobState struct {
+	Name       string `json:"name"`
+	Spec       string `json:"spec"`
+	Script     string `json:"script"`
+	Args       []string `json:"args"`
+	Env        []string `json:"env"`
+	Cwd        string   `json:"cwd"`
+	Enabled    bool   `json:"enabled"`
+	LastRunAt  int64  `json:"last_run_at"`  // 上次执行时间(unix timestamp)
+	NextRunAt  int64  `json:"next_run_at"`  // 下次执行时间(unix timestamp)
+	LastStatus string `json:"last_status"`  // 上次执行状态: success/failed/running
+	TotalRun   int    `json:"total_run"`    // 总执行次数
+	TotalFail  int    `json:"total_fail"`   // 总失败次数
+}
+
+// CronStateFile 定时任务状态文件
+type CronStateFile struct {
+	Jobs map[string]CronJobState `json:"jobs"`
+}
