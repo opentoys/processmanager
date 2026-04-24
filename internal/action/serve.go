@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"processmanager/internal/utils"
 
@@ -26,11 +28,111 @@ func ServeStaticAction(ctx context.Context, cmd *cli.Command) error {
 		port = 8080
 	}
 
-	fs := http.FileServer(http.Dir(dir))
-	addr := ":" + strconv.Itoa(port)
+	upload := cmd.Bool("upload")
+	key := cmd.String("key")
+	prefix := "/" + key
+	mux := http.NewServeMux()
+	mux.HandleFunc(prefix+"/", func(w http.ResponseWriter, r *http.Request) {
+		relPath := strings.TrimPrefix(r.URL.Path, prefix+"/")
+		switch r.Method {
+		case http.MethodGet:
+			http.StripPrefix(prefix+"/", http.FileServer(http.Dir(dir))).ServeHTTP(w, r)
+		case http.MethodDelete:
+			if !upload {
+				http.Error(w, "upload not enabled", http.StatusForbidden)
+				return
+			}
+			fp := filepath.Join(dir, relPath)
+			if !strings.HasPrefix(filepath.Clean(fp), filepath.Clean(dir)) {
+				http.Error(w, "path traversal not allowed", http.StatusBadRequest)
+				return
+			}
+			if err := os.Remove(fp); err != nil {
+				http.Error(w, "delete failed: "+err.Error(), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"success":true,"message":"deleted %s"}`, relPath)
+		case http.MethodPost:
+			if !upload {
+				http.Error(w, "upload not enabled", http.StatusForbidden)
+				return
+			}
+			if err := r.ParseMultipartForm(32 << 20); err != nil {
+				http.Error(w, "parse form error: "+err.Error(), http.StatusBadRequest)
+				return
+			}
+			files := r.MultipartForm.File["files"]
+			if len(files) == 0 {
+				http.Error(w, "no files uploaded", http.StatusBadRequest)
+				return
+			}
+			targetDir := filepath.Join(dir, relPath)
+			if !strings.HasPrefix(filepath.Clean(targetDir), filepath.Clean(dir)) {
+				http.Error(w, "path traversal not allowed", http.StatusBadRequest)
+				return
+			}
+			os.MkdirAll(targetDir, 0755)
+			var uploaded []string
+			for _, fh := range files {
+				name := filepath.Base(fh.Filename)
+				dst := filepath.Join(targetDir, name)
+				src, err := fh.Open()
+				if err != nil {
+					http.Error(w, "open file error: "+err.Error(), http.StatusInternalServerError)
+					return
+				}
+				out, err := os.Create(dst)
+				if err != nil {
+					src.Close()
+					http.Error(w, "create file error: "+err.Error(), http.StatusInternalServerError)
+					return
+				}
+				if _, err = io.Copy(out, src); err != nil {
+					src.Close()
+					out.Close()
+					os.Remove(dst)
+					http.Error(w, "save file error: "+err.Error(), http.StatusInternalServerError)
+					return
+				}
+				src.Close()
+				out.Close()
+				uploaded = append(uploaded, name)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			fmt.Fprintf(w, `{"success":true,"message":"%d file(s) uploaded","files":%s}`,
+				len(uploaded), toJSONStrings(uploaded))
+		default:
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
 
-	fmt.Printf("Serving %s on http://localhost:%d\n", dir, port)
-	return http.ListenAndServe(addr, fs)
+	addr := ":" + strconv.Itoa(port)
+	fmt.Printf("Serving %s on http://localhost:%d%s/\n", dir, port, prefix)
+	return http.ListenAndServe(addr, mux)
+}
+
+func toJSONStrings(ss []string) string {
+	var b strings.Builder
+	b.WriteByte('[')
+	for i, s := range ss {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteByte('"')
+		for _, c := range s {
+			switch c {
+			case '"', '\\':
+				b.WriteByte('\\')
+				b.WriteByte(byte(c))
+			default:
+				b.WriteByte(byte(c))
+			}
+		}
+		b.WriteByte('"')
+	}
+	b.WriteByte(']')
+	return b.String()
 }
 
 // GetServeStaticCommand 返回内置 serve-static 子命令
@@ -46,6 +148,17 @@ func GetServeStaticCommand() *cli.Command {
 				Aliases: []string{"p"},
 				Usage:   "Port to listen on",
 				Value:   8080,
+			},
+			&cli.BoolFlag{
+				Name:    "upload",
+				Aliases: []string{"u"},
+				Usage:   "Enable file upload support",
+				Value:   false,
+			},
+			&cli.StringFlag{
+				Name:    "key",
+				Aliases: []string{"k"},
+				Usage:   "Access key as route prefix (default: random)",
 			},
 		},
 		Action: ServeStaticAction,
@@ -83,6 +196,14 @@ func ServeAction(ctx context.Context, cmd *cli.Command) error {
 
 	// 构建启动参数
 	args := []string{"serve-static", dir, "-p", strconv.Itoa(port)}
+	if cmd.Bool("upload") {
+		args = append(args, "-u")
+	}
+	if k := cmd.String("key"); k != "" {
+		args = append(args, "-k", k)
+	} else {
+		args = append(args, "-k", utils.RandHash())
+	}
 
 	// 获取当前可执行文件的绝对路径
 	execPath, err := os.Executable()
@@ -126,6 +247,17 @@ func GetServeCommand() *cli.Command {
 				Name:    "name",
 				Aliases: []string{"n"},
 				Usage:   "Process name",
+			},
+			&cli.BoolFlag{
+				Name:    "upload",
+				Aliases: []string{"u"},
+				Usage:   "Enable file upload support",
+				Value:   false,
+			},
+			&cli.StringFlag{
+				Name:    "key",
+				Aliases: []string{"k"},
+				Usage:   "Access key as route prefix (default: random)",
 			},
 		},
 		Action: ServeAction,

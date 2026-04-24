@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -29,4 +31,10 @@ func GetSocketPath() string {
 func DecodeURI(enc string) (dec string) {
 	dec, _ = url.QueryUnescape(enc)
 	return
+}
+
+func RandHash() string {
+	buf := make([]byte, 16)
+	rand.Read(buf)
+	return hex.EncodeToString(buf)
 }
