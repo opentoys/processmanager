@@ -285,9 +285,10 @@ func RestartAction(ctx context.Context, cmd *cli.Command) error {
 // GetDeleteCommand 返回 delete 命令
 func GetDeleteCommand() *cli.Command {
 	return &cli.Command{
-		Name:   "delete",
-		Usage:  "Delete a process",
-		Action: DeleteAction,
+		Name:    "delete",
+		Usage:   "Delete a process",
+		Aliases: []string{"remove", "rm", "del"},
+		Action:  DeleteAction,
 	}
 }
 
@@ -489,6 +490,7 @@ func GetProcessCommands() []*cli.Command {
 		GetLogsCommand(),
 		GetSaveCommand(),
 		GetResurrectCommand(),
+		GetServeCommand(),
 		GetPluginCommand(),
 		GetCrontabCommand(),
 		GetConfigCommand(),

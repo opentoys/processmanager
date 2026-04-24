@@ -86,6 +86,7 @@ func main() {
 					return pm.StartDaemon()
 				},
 			},
+			action.GetServeStaticCommand(),
 		),
 	}
 
