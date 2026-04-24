@@ -390,7 +390,7 @@ func (cm *CronManager) load() error {
 		}
 
 		// 验证 cron 表达式
-		if _, err := cron.ParseStandard(state.Spec); err != nil {
+		if _, err := cm.parse.Parse(state.Spec); err != nil {
 			slog.Error("Invalid cron spec in saved state, skipping", "name", name, "spec", state.Spec, "error", err)
 			continue
 		}
