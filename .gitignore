@@ -1,4 +1,6 @@
 __debug**
 **.bin
 **.json
-pm.*
+pm*
+logs/
+*.js
